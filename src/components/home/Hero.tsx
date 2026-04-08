@@ -1,6 +1,18 @@
 import WaitlistForm from '@/components/ui/WaitlistForm';
+import { createClient } from '@/lib/supabase/server';
 
-// Kleo-style sparkle SVG (matches their sparkle.svg icon)
+async function getWaitlistCount(): Promise<number> {
+  try {
+    const supabase = await createClient();
+    const { count } = await supabase
+      .from('waitlist')
+      .select('*', { count: 'exact', head: true });
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 function SparkleIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-blue-500">
@@ -12,7 +24,6 @@ function SparkleIcon() {
   );
 }
 
-// Kleo-style suggestion chip
 function Chip({ icon, label }: { icon: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white border border-zinc-200 text-zinc-600 text-sm hover:border-zinc-300 hover:text-zinc-800 transition-colors duration-150 cursor-default select-none shadow-sm">
@@ -22,9 +33,10 @@ function Chip({ icon, label }: { icon: string; label: string }) {
   );
 }
 
-export default function Hero() {
+export default async function Hero() {
+  const count = await getWaitlistCount();
+
   return (
-    /* texture-1 equivalent: very subtle off-white tint */
     <section
       id="waitlist"
       className="bg-[#fafafa]"
@@ -34,18 +46,14 @@ export default function Hero() {
       }}
     >
       <div className="max-w-3xl mx-auto px-6 pt-20 pb-16 text-center">
-
-        {/* Sparkle icon — kleo uses img, we use inline SVG */}
         <div className="flex justify-center mb-4">
           <SparkleIcon />
         </div>
 
-        {/* Badge — kleo: v2-h4---1 + v2-blue-highlight */}
         <p className="text-blue-600 font-semibold text-sm tracking-wide uppercase mb-5">
           재개발/재건축 투자를 고민 중이신가요?
         </p>
 
-        {/* Main headline — kleo: v2-h1---1, blue highlight on key phrase */}
         <div className="max-w-2xl mx-auto mb-5">
           <h1 className="font-bold text-4xl sm:text-5xl leading-[1.2] text-zinc-900">
             당신이 사려는 매물
@@ -56,7 +64,6 @@ export default function Hero() {
           </h1>
         </div>
 
-        {/* Sub headline — kleo: v2-h3---1, bold on key phrases */}
         <div className="max-w-xl mx-auto mb-10">
           <p className="text-zinc-500 text-lg leading-relaxed">
             중개소의 브리핑에 수억 원을 걸지 마세요.
@@ -69,12 +76,10 @@ export default function Hero() {
           </p>
         </div>
 
-        {/* Form — kleo: v2-hero-form inside form-block */}
         <div className="max-w-lg mx-auto mb-5">
           <WaitlistForm />
         </div>
 
-        {/* Suggestion chips — kleo: v2-hero-form-pillbox-lockup-1 */}
         <div className="flex flex-wrap justify-center gap-2">
           <Chip icon="📊" label="보수적 시나리오 분석" />
           <Chip icon="📈" label="3가지 수익률 밴드" />
@@ -83,11 +88,10 @@ export default function Hero() {
         </div>
       </div>
 
-      {/* Social proof row — kleo: v2-hero-social-proof-lockup */}
+      {/* Social proof row */}
       <div className="border-t border-zinc-200 bg-white">
-        <div className="max-w-5xl mx-auto px-6 py-5 flex flex-col sm:flex-row items-center justify-center gap-6 text-sm text-zinc-500">
+        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-center gap-6 text-sm text-zinc-500">
           <div className="flex items-center gap-3">
-            {/* Stacked avatars placeholder */}
             <div className="flex -space-x-2">
               {['bg-blue-200', 'bg-purple-200', 'bg-pink-200', 'bg-yellow-200', 'bg-green-200'].map(
                 (color, i) => (
@@ -108,17 +112,10 @@ export default function Hero() {
                   </svg>
                 ))}
               </div>
-              <span>부동산 투자자 1,200명이 대기 중</span>
+              <span>
+                <strong className="text-zinc-700">{count.toLocaleString()}명</strong>이 리포트를 받기 위해 대기 중
+              </span>
             </div>
-          </div>
-
-          <div className="hidden sm:block w-px h-8 bg-zinc-200" />
-
-          <div className="flex items-center gap-2 text-zinc-400">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-            <span>스팸 없음. 언제든지 수신 해제 가능.</span>
           </div>
         </div>
       </div>
