@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 
 export async function joinWaitlist(prevState: unknown, formData: FormData) {
@@ -18,5 +19,6 @@ export async function joinWaitlist(prevState: unknown, formData: FormData) {
     return { error: '서버 오류가 발생했습니다. 다시 시도해 주세요.' };
   }
 
+  revalidatePath('/');
   return { success: true };
 }

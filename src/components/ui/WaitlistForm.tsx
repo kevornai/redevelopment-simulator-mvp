@@ -1,7 +1,8 @@
 'use client';
 
-import { useActionState, useRef } from 'react';
+import { useActionState, useRef, useEffect } from 'react';
 import { useFormStatus } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import { joinWaitlist } from '@/app/actions/waitlist';
 
 function SubmitButton() {
@@ -18,6 +19,7 @@ function SubmitButton() {
 }
 
 export default function WaitlistForm() {
+  const router = useRouter();
   const [state, formAction] = useActionState(joinWaitlist, null);
 
   const prevStateRef = useRef(state);
@@ -26,6 +28,10 @@ export default function WaitlistForm() {
     if (state?.error) shakeKeyRef.current += 1;
     prevStateRef.current = state;
   }
+
+  useEffect(() => {
+    if (state?.success) router.refresh();
+  }, [state?.success, router]);
 
   if (state?.success) {
     return (

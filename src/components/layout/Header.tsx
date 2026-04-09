@@ -8,9 +8,9 @@ export default function Header() {
           <Image
             src="/logo.png"
             alt="Revo"
-            width={120}
-            height={40}
-            className="h-10 w-auto object-contain"
+            width={320}
+            height={100}
+            className="h-20 w-auto object-contain"
             priority
           />
         </a>

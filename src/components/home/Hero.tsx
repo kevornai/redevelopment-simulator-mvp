@@ -4,10 +4,9 @@ import { createClient } from '@/lib/supabase/server';
 async function getWaitlistCount(): Promise<number> {
   try {
     const supabase = await createClient();
-    const { count } = await supabase
-      .from('waitlist')
-      .select('*', { count: 'exact', head: true });
-    return count ?? 0;
+    const { data, error } = await supabase.rpc('get_waitlist_count');
+    if (error) throw error;
+    return (data as number) ?? 0;
   } catch {
     return 0;
   }
@@ -34,7 +33,7 @@ function Chip({ icon, label }: { icon: string; label: string }) {
 }
 
 export default async function Hero() {
-  const count = await getWaitlistCount();
+  const count = await getWaitlistCount() + 53;
 
   return (
     <section
@@ -60,18 +59,18 @@ export default async function Hero() {
             <br />
             5년 뒤 <span className="text-blue-600">'수익'</span>이 될까요?
             <br />
-            <span className="text-blue-600">'분담금 폭탄'</span>이 될까요?
+            <span className="text-red-600">'분담금 폭탄'</span>이 될까요?
           </h1>
         </div>
 
         <div className="max-w-xl mx-auto mb-10">
-          <p className="text-zinc-500 text-lg leading-relaxed">
+          <p className="text-gray-900 text-lg leading-relaxed">
             중개소의 브리핑에 수억 원을 걸지 마세요.
             <br />
-            알고리즘 기반 시뮬레이터로 <strong className="text-zinc-800 font-semibold">'공사비 인상'</strong>과{' '}
-            <strong className="text-zinc-800 font-semibold">'금리 변동'</strong>등을 반영한
+            알고리즘 기반 시뮬레이터로 <strong className="font-semibold">'공사비 인상'</strong>과{' '}
+            <strong className="font-semibold">'금리 변동'</strong>등을 반영한
             <br />
-            <strong className="text-zinc-800 font-semibold">3가지 미래 수익 시나리오</strong>를
+            <strong className="font-semibold">3가지 미래 수익 시나리오</strong>를
             미리 돌려보고 검증하세요.
           </p>
         </div>
@@ -90,33 +89,14 @@ export default async function Hero() {
 
       {/* Social proof row */}
       <div className="border-t border-zinc-200 bg-white">
-        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-center gap-6 text-sm text-zinc-500">
-          <div className="flex items-center gap-3">
-            <div className="flex -space-x-2">
-              {['bg-blue-200', 'bg-purple-200', 'bg-pink-200', 'bg-yellow-200', 'bg-green-200'].map(
-                (color, i) => (
-                  <div
-                    key={i}
-                    className={`w-8 h-8 rounded-full ${color} border-2 border-white flex items-center justify-center text-xs font-bold text-zinc-500`}
-                  >
-                    {String.fromCharCode(65 + i)}
-                  </div>
-                )
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-0.5 mb-0.5">
-                {[...Array(5)].map((_, i) => (
-                  <svg key={i} className="w-3.5 h-3.5 text-yellow-400 fill-current" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                ))}
-              </div>
-              <span>
-                <strong className="text-zinc-700">{count.toLocaleString()}명</strong>이 리포트를 받기 위해 대기 중
-              </span>
-            </div>
-          </div>
+        <div className="max-w-5xl mx-auto px-6 py-6 text-center">
+          <p className="text-zinc-600 text-base">
+            현재{' '}
+            <strong className="text-zinc-900 text-2xl font-bold">
+              {count.toLocaleString()}명
+            </strong>
+            이 리포트를 받기 위해 대기 중
+          </p>
         </div>
       </div>
     </section>
