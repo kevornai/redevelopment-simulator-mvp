@@ -8,13 +8,14 @@ const features = [
     title: '"내 돈은 최대 얼마까지 더 들어갈까?" 금리·공사비 반영 분담금 예측',
     subtitle: (
       <>
-        고정된 과거의 조합 브리핑 자료를 맹신하지 마십시오. 현재 시장의 가장 큰 리스크인{' '}
-        <strong className="font-semibold text-zinc-800">'평당 공사비 인상률'</strong>과 사업 지연에 따른{' '}
-        <strong className="font-semibold text-zinc-800">'금융 비용(이자)'</strong>을 알고리즘에 대입하여,
-        입주 시점까지 변동될 수 있는 예상 분담금의{' '}
-        <strong className="font-semibold text-zinc-800">최대치(최악의 한계선)</strong>를 먼저 산출합니다.
+        과거 기준의 장밋빛 사업 계획서를 맹신하지 마십시오.{' '}
+        <strong className="font-semibold text-zinc-800">국토부 실거래가</strong>와{' '}
+        <strong className="font-semibold text-zinc-800">최신 평당 공사비 인상률</strong>을 알고리즘에 강제 대입하여,
+        사업 지연 및 물가 상승 시 감당해야 할{' '}
+        <strong className="font-semibold text-zinc-800">'가장 보수적인 분담금 한계치'</strong>를 미리 계산해 드립니다.
       </>
     ),
+
     visual: <CostVolatilityPanel />,
   },
   {
@@ -22,11 +23,13 @@ const features = [
     title: '"그래서 최종 수익은 어떻게 될까?" 최상·보통·최악 3단계 수익률 밴드',
     subtitle: (
       <>
-        재개발 투자는 단일화된 확정 수익이 존재할 수 없습니다.{' '}
-        <strong className="font-semibold text-zinc-800">시장 호황 및 사업 단축(Best)</strong>,{' '}
-        <strong className="font-semibold text-zinc-800">현재 거시 경제 기조 유지(Base)</strong>,{' '}
-        <strong className="font-semibold text-zinc-800">원자재 폭등 및 인허가 지연(Worst)</strong>이라는{' '}
-        3가지 시나리오를 대입하여 미래 수익금의 스펙트럼을 수치로 시각화합니다.
+        %로 표시되는 애매한 수익률에 속지 마십시오.{' '}
+        <strong className="font-semibold text-zinc-800">[매수가 + 최악의 예상 분담금 + 사업 지연 이자]</strong>를
+        모두 합산한{' '}
+        <strong className="font-semibold text-zinc-800">'나의 최종 총 투자금'</strong>을 구하고,
+        이를 주변 신축 아파트 시세와 비교하여{' '}
+        <strong className="font-semibold text-zinc-800">지금 매수해도 안전한 구간인지</strong>{' '}
+        직관적인 금액으로 증명합니다.
       </>
     ),
     visual: <ScenarioChart />,
@@ -36,10 +39,11 @@ const features = [
     title: '"지금 사도 될까?" 영업 논리가 철저히 배제된 AI 타당성 리포트',
     subtitle: (
       <>
-        거래 성사가 목적인 시장에서는 아무도 리스크를 경고하지 않습니다.
-        이해관계가 전혀 없는 AI가 앞서 계산된 시나리오 데이터를 바탕으로,{' '}
-        <strong className="font-semibold text-zinc-800">투자자의 자본 방어</strong>에 초점을 맞춘
-        냉혹한 타당성 검증 리포트를 발행합니다.
+        거래 성사가 목적인 중개소 브리핑에는 필연적으로{' '}
+        <strong className="font-semibold text-zinc-800">'최상의 시나리오'만</strong> 담깁니다.
+        우리 서비스는 이해관계가 전혀 얽히지 않은 AI가 오직 데이터만을 바탕으로{' '}
+        <strong className="font-semibold text-zinc-800">"현재가 매수 시 리스크가 큽니다"</strong>와 같은{' '}
+        냉정한 <strong className="font-semibold text-zinc-800">팩트체크 리포트</strong>를 발행합니다.
       </>
     ),
     visual: <AiReportMockup />,
