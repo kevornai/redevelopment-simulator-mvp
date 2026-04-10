@@ -57,9 +57,9 @@ export default async function Hero() {
           <h1 className="font-bold text-4xl sm:text-5xl leading-[1.2] text-zinc-900">
             당신이 사려는 매물
             <br />
-            5년 뒤 <span className="text-blue-600">'수익'</span>이 될까요?
-            <br />
-            <span className="text-red-600">'분담금 폭탄'</span>이 될까요?
+            5년 뒤 <span className="text-blue-600">수익</span> or
+            
+            <span className="text-red-600"> 분담금 폭탄</span>
           </h1>
         </div>
 
@@ -75,8 +75,15 @@ export default async function Hero() {
           </p>
         </div>
 
-        <div className="max-w-lg mx-auto mb-5">
-          <WaitlistForm />
+        <div className="max-w-[400px] mx-auto">
+          {/* Micro-copy */}
+          <p className="text-[13px] font-semibold text-blue-500 text-center mb-3">
+            <span className="hidden sm:inline">🎁 [사전 예약 혜택] 지금 이메일 남기면, 무료 분석권 &amp; 가이드북 즉시 발송</span>
+            <span className="inline sm:hidden">🎁 이메일 남기면 무료 분석권 &amp; 가이드북 발송</span>
+          </p>
+          <div className="mb-5">
+            <WaitlistForm />
+          </div>
         </div>
 
         <div className="flex flex-wrap justify-center gap-2">

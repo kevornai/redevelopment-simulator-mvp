@@ -11,9 +11,9 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3.5 px-6 rounded-xl text-sm transition-colors duration-150"
+      className="w-full max-w-[400px] h-[52px] bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold px-6 rounded-xl text-sm transition-colors duration-150"
     >
-      {pending ? '처리 중...' : '무료 분석권 및 가이드북 받기'}
+      {pending ? '처리 중...' : '사전 예약하기'}
     </button>
   );
 }
@@ -55,16 +55,16 @@ export default function WaitlistForm() {
   const hasError = !!state?.error;
 
   return (
-    <form action={formAction} className="flex flex-col gap-2.5 w-full">
-      <div key={shakeKeyRef.current} className={hasError ? 'animate-shake' : ''}>
+    <form action={formAction} className="flex flex-col gap-3 w-full items-center">
+      <div key={shakeKeyRef.current} className={`w-full max-w-[400px] ${hasError ? 'animate-shake' : ''}`}>
         <input
           type="text"
           name="email"
-          placeholder="자주 확인하시는 이메일 주소를 입력해 주세요"
-          className={`w-full bg-white text-zinc-900 placeholder-zinc-400 py-3.5 px-4 rounded-xl text-sm border transition-all duration-150 focus:outline-none focus:ring-2 ${
+          placeholder="가이드북을 받을 이메일 주소"
+          className={`w-full h-[48px] bg-white text-black placeholder-zinc-400 pl-[16px] pr-4 rounded-xl text-sm border transition-all duration-150 focus:outline-none focus:ring-2 ${
             hasError
               ? 'border-red-400 focus:ring-red-200'
-              : 'border-zinc-300 focus:border-blue-500 focus:ring-blue-100'
+              : 'border-gray-300 focus:border-blue-500 focus:ring-blue-100'
           }`}
         />
       </div>
