@@ -32,7 +32,7 @@ function Chip({ icon, label }: { icon: string; label: string }) {
   );
 }
 
-export default async function Hero() {
+export default async function Hero({ zoneName }: { zoneName?: string }) {
   const count = await getWaitlistCount() + 53;
 
   return (
@@ -55,10 +55,10 @@ export default async function Hero() {
 
         <div className="max-w-2xl mx-auto mb-5">
           <h1 className="font-bold text-4xl sm:text-5xl leading-[1.2] text-zinc-900">
-            당신이 사려는 매물
+            당신이 사려는{zoneName ? <> <span className="text-blue-700">{zoneName}</span></> : ''} 매물
             <br />
             5년 뒤 <span className="text-blue-600">수익</span> or
-            
+
             <span className="text-red-600"> 분담금 폭탄</span>
           </h1>
         </div>

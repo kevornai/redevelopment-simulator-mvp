@@ -1,0 +1,36 @@
+export const zones: Record<string, string> = {
+  // 서울 강북권
+  'hannam3': '한남3구역',
+  'hannam2': '한남2구역',
+  'hannam4': '한남4구역',
+  'hannam5': '한남5구역',
+  'noryangjin1': '노량진1구역',
+  'noryangjin2': '노량진2구역',
+  'noryangjin3': '노량진3구역',
+  'noryangjin5': '노량진5구역',
+  'heukseok2': '흑석2구역',
+  'heukseok3': '흑석3구역',
+  'singil1': '신길1구역',
+  'singil4': '신길4구역',
+  'singil5': '신길5구역',
+  'singil6': '신길6구역',
+  'dapsimni': '답십리16구역',
+  'wangsimni': '왕십리뉴타운',
+  'majang': '마장구역',
+  // 서울 강남권
+  'banpo': '반포주공1단지',
+  'gaepo': '개포주공1단지',
+  'gaepo4': '개포4단지',
+  'dunchon': '둔촌주공',
+  'chamsil': '잠실주공5단지',
+  'seocho': '서초구역',
+  // 서울 서북권
+  'ahyeon': '아현뉴타운',
+  'mapo': '마포로구역',
+  'gajwa': '가좌구역',
+  'yeonsinnae': '연신내구역',
+  // 경기도
+  'gwacheon': '과천주공7단지',
+  'gwacheon1': '과천1구역',
+  'gwacheon2': '과천2구역',
+};
