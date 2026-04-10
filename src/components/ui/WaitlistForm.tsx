@@ -3,6 +3,7 @@
 import { useActionState, useRef, useEffect, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { sendGTMEvent } from '@next/third-parties/google';
 import { joinWaitlist } from '@/app/actions/waitlist';
 
 function SubmitButton({ label, disabled }: { label: string; disabled?: boolean }) {
@@ -44,8 +45,17 @@ export default function WaitlistForm() {
   }
 
   useEffect(() => {
-    if (state?.success) router.refresh();
-  }, [state?.success, router]);
+    if (state?.success) {
+      const consent = pendingConsent !== null ? pendingConsent : marketingConsent;
+      sendGTMEvent({
+        event: 'generate_lead',
+        method: 'email',
+        content_name: 'waitlist_form',
+        marketing_consent: consent,
+      });
+      router.refresh();
+    }
+  }, [state?.success]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (pendingConsent !== null) {

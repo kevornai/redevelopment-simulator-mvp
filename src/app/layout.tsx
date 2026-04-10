@@ -1,6 +1,10 @@
 import type { Metadata } from 'next';
 import Script from 'next/script';
+import { GoogleTagManager } from '@next/third-parties/google';
 import './globals.css';
+
+// GTM ID는 환경변수 NEXT_PUBLIC_GTM_ID로 관리하세요 (예: GTM-XXXXXXX)
+const GTM_ID = process.env.NEXT_PUBLIC_GTM_ID ?? 'GTM-XXXXXXX';
 
 export const metadata: Metadata = {
   title: 'Revo — 최고의 AI 기반 재개발·재건축 마진 예측 솔루션',
@@ -22,6 +26,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col bg-white">
+        <GoogleTagManager gtmId={GTM_ID} />
         {children}
         <Script
           id="clarity-script"
