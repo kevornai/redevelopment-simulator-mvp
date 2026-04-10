@@ -18,7 +18,7 @@ export default function Header() {
           href="#waitlist"
           className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors duration-150"
         >
-          대기자 명단 등록
+          사전 예약하기
         </a>
       </div>
     </header>

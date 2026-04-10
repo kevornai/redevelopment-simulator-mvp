@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 
 export async function joinWaitlist(prevState: unknown, formData: FormData) {
   const email = formData.get('email') as string;
+  const marketingConsent = formData.get('marketing_consent') === 'true';
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   if (!email || !emailRegex.test(email)) {
@@ -12,7 +13,9 @@ export async function joinWaitlist(prevState: unknown, formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.from('waitlist').insert([{ email }]);
+  const { error } = await supabase
+    .from('waitlist')
+    .insert([{ email, marketing_consent: marketingConsent }]);
 
   if (error) {
     if (error.code === '23505') return { error: '이미 등록된 이메일입니다.' };

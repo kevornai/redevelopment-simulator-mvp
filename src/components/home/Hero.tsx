@@ -87,10 +87,10 @@ export default async function Hero() {
         </div>
 
         <div className="flex flex-wrap justify-center gap-2">
-          <Chip icon="📊" label="보수적 시나리오 분석" />
-          <Chip icon="📈" label="3가지 수익률 밴드" />
-          <Chip icon="🤖" label="AI 타당성 리포트" />
-          <Chip icon="📖" label="무료 가이드북" />
+          <Chip icon="📊" label="최악의 분담금 계산하기" />
+          <Chip icon="📈" label="예상 수익 확인하기" />
+          <Chip icon="🤖" label="지금 사도 될까?" />
+          <Chip icon="📖" label="수억 아끼는 무료 가이드북" />
         </div>
       </div>
 
