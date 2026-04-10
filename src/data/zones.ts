@@ -17,6 +17,7 @@ export const zones: Record<string, string> = {
   'dapsimni': '답십리16구역',
   'wangsimni': '왕십리뉴타운',
   'majang': '마장구역',
+  'seongsu': '성수전략정비구역',
   // 서울 강남권
   'banpo': '반포주공1단지',
   'gaepo': '개포주공1단지',
@@ -24,6 +25,7 @@ export const zones: Record<string, string> = {
   'dunchon': '둔촌주공',
   'chamsil': '잠실주공5단지',
   'seocho': '서초구역',
+  'heukseok9': '흑석9구역',
   // 서울 서북권
   'ahyeon': '아현뉴타운',
   'mapo': '마포로구역',
