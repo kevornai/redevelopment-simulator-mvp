@@ -38,6 +38,21 @@ export default function CheckoutButton({
     const paymentId = generatePaymentId();
 
     try {
+      // 결제 전 orders 테이블에 주문 선(先) 등록 — verify-payment 금액 대조용
+      const { error: insertError } = await supabase.from("orders").insert({
+        payment_id: paymentId,
+        user_email: userEmail,
+        amount: totalAmount,
+        status: "PENDING",
+      });
+
+      if (insertError) {
+        console.error("[CheckoutButton] 주문 생성 오류:", insertError);
+        setStatus("failed");
+        setErrorMessage("주문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+
       const response = await PortOne.requestPayment({
         storeId: process.env.NEXT_PUBLIC_PORTONE_STORE_ID!,
         channelKey: process.env.NEXT_PUBLIC_PORTONE_CHANNEL_KEY!,
