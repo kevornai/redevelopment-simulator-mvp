@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <rect width="32" height="32" rx="8" fill="#2563EB"/>
+  <!-- 집 지붕 -->
+  <polygon points="16,5 27,15 5,15" fill="white" opacity="0.95"/>
+  <!-- 집 몸체 -->
+  <rect x="9" y="15" width="14" height="11" rx="1" fill="white" opacity="0.95"/>
+  <!-- 문 -->
+  <rect x="13.5" y="19" width="5" height="7" rx="1" fill="#2563EB"/>
+  <!-- 굴뚝 -->
+  <rect x="20" y="8" width="3" height="6" rx="0.5" fill="white" opacity="0.8"/>
+</svg>

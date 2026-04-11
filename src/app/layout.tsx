@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   title: 'Revo — 최고의 AI 기반 재개발·재건축 마진 예측 솔루션',
   description:
     '공사비 인상과 금리 변동을 반영한 3가지 미래 수익 시나리오. 중개소 브리핑이 아닌 알고리즘으로 검증하세요.',
+  icons: {
+    icon: '/icon.svg',
+  },
 };
 
 export default function RootLayout({
