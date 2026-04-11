@@ -11,18 +11,32 @@ export default function Footer() {
           결과와 크게 다를 수 있으며, 모든 투자 결정과 그에 따른 손실에 대한 책임은 투자자
           본인에게 있습니다.
         </p>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+
+        {/* 사업자 정보 */}
+        <p className="text-zinc-400 text-xs leading-relaxed mb-5">
+          상호: 린스튜디오 &nbsp;|&nbsp; 대표: 신하린 &nbsp;|&nbsp; 사업자등록번호: 510-25-10269
+          <br />
+          주소: 경기도 수원시 팔달구 고등로 13, 303동 1002호 (고등동, 수원역푸르지오더스마트)
+          <br />
+          업태: 정보통신업 &nbsp;|&nbsp; 종목: 미디어콘텐츠창작업
+        </p>
+
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <p className="text-zinc-400 text-xs">
             문의:{' '}
             <a
-              href="mailto:contact@example.com"
+              href="mailto:30lastchance@gmail.com"
               className="hover:text-zinc-700 transition-colors"
             >
-              contact@example.com
+              30lastchance@gmail.com
             </a>
           </p>
+          <div className="flex items-center gap-4 text-xs text-zinc-400">
+            <a href="/terms" className="hover:text-zinc-700 transition-colors">이용약관</a>
+            <a href="/privacy" className="hover:text-zinc-700 transition-colors">개인정보처리방침</a>
+          </div>
           <p className="text-zinc-300 text-xs">
-            Copyright ⓒ 분담금 계산기. All rights reserved.
+            Copyright ⓒ 린스튜디오. All rights reserved.
           </p>
         </div>
       </div>
