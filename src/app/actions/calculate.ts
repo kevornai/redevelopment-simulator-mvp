@@ -2,42 +2,99 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-// ── 입력 타입 ────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// 타입 정의
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export interface CalculationInput {
   zoneId: string;
-  propertyType: string;       // 'villa' | 'house'
+  projectType: "redevelopment" | "reconstruction"; // 재개발 | 재건축
+  propertyType: string;       // 'villa' | 'house' | 'apartment'
   purchasePrice: number;      // 매수 희망가 (원)
+  purchaseLoanAmount: number; // 매수 시 대출금 (원) — 보유기간 이자 계산용
   currentDeposit: number;     // 현재 전/월세 보증금 (원)
   desiredPyung: number;       // 희망 조합원 분양 평형 (평)
   officialValuation: number;  // 공동주택 공시가격 (원)
 }
 
-// ── 시나리오별 출력 타입 ──────────────────────────────────────────────────────
+/** 사업 단계별 현금흐름 스냅샷 */
+export interface StageCashFlow {
+  stage: string;
+  label: string;
+  monthFromNow: number;        // 현재 시점부터 경과 개월
+  cumulativeCashOut: number;   // 누적 현금 지출 (원)
+  cumulativeCashIn: number;    // 누적 현금 수입 (이주비 등)
+  netCashPosition: number;     // 순 현금 포지션
+}
 
+/** 시나리오별 완전 결과 */
 export interface ScenarioResult {
   scenarioType: "optimistic" | "neutral" | "pessimistic";
   scenarioLabel: string;
+
+  // ── 사업 기간 ──
   appliedMonths: number;
-  appliedConstructionCostPerPyung: number;
-  appliedGeneralSalePrice: number;
-  estimatedAppraisalValue: number;
-  estimatedPremium: number;
-  premiumBubbleIndex: number;
-  proportionalRate: number;
-  rightsValue: number;
-  additionalContribution: number;
-  totalInvestmentCost: number;
-  actualInitialInvestment: number;
-  netProfit: number;
-  returnOnEquity: number;
-  breakEvenGeneralSalePrice: number;
-  cushionAgainstCostIncrease: number;
+  monthsToConstructionStart: number;
+  constructionPeriodMonths: number;
+
+  // ── 공사비 ──
+  appliedConstructionCostPerPyung: number; // 최종 적용 평당 공사비
+  constructionCostGrowthRate: number;      // 적용된 월 인상률 (%)
+
+  // ── 분양가 ──
+  appliedGeneralSalePrice: number; // 적용 평당 일반분양가
+
+  // ── 감정평가 & 비례율 ──
+  estimatedAppraisalValue: number;  // 예상 감정평가액
+  proportionalRate: number;         // 비례율 (%)
+  rightsValue: number;              // 권리가액
+
+  // ── 프리미엄 분석 ──
+  estimatedPremium: number;         // 프리미엄 (매수가 - 감정평가액)
+  premiumBubbleIndex: number;       // 프리미엄 버블지수 (%)
+  premiumRecoveryYears: number;     // 프리미엄 회수 소요 연수 (추정)
+
+  // ── 분담금 ──
+  targetMemberSalePrice: number;    // 희망 평형 분양가 총액
+  additionalContribution: number;   // 추가 분담금 (음수=환급)
+  contributionAtConstruction: number; // 착공 시 납부액
+  contributionAtCompletion: number;   // 입주 시 납부액
+
+  // ── 비용 항목 ──
+  acquisitionTax: number;           // 취득세 (추정)
+  holdingInterestCost: number;      // 보유기간 이자 비용 (대출 이자)
+  moveOutCost: number;              // 이사/명도 비용
+  totalAdditionalCosts: number;     // 총 부대 비용
+
+  // ── 투자 원금 및 수익 ──
+  totalInvestmentCost: number;      // 총 투자 원금 (매수+분담금)
+  totalInvestmentWithCosts: number; // 총 실투자 비용 (부대비용 포함)
+  actualInitialInvestment: number;  // 초기 실투자금 (매수가 - 보증금)
+  effectiveCash: number;            // 실제 현금 투입 (대출 제외)
+  netProfit: number;                // 순수익 (시세차익)
+  netProfitAfterCosts: number;      // 부대비용 차감 후 순수익
+
+  // ── 수익률 ──
+  returnOnEquity: number;           // ROE (초기 실투자금 기준, %)
+  returnOnTotalInvestment: number;  // ROI (총 투자비용 기준, %)
+  annualizedReturn: number;         // 연환산 수익률 (%)
+  irr: number;                      // 내부수익률 IRR (%)
+  npv: number;                      // 순현재가치 NPV (원, 할인율=목표수익률)
+
+  // ── 리스크 지표 ──
+  breakEvenGeneralSalePrice: number;  // 손익분기 일반분양가 (평당)
+  maxAffordableContribution: number;  // 최대 감당 가능 분담금
+  opportunityCostGap: number;         // 기회비용 대비 초과/미달 수익 (원)
+
+  // ── 단계별 현금흐름 ──
+  stageCashFlows: StageCashFlow[];
 }
 
 export interface CalculationResult {
   zoneId: string;
   zoneName: string;
+  projectType: "redevelopment" | "reconstruction";
+  projectStage: string;
   input: CalculationInput;
   optimistic: ScenarioResult;
   neutral: ScenarioResult;
@@ -45,14 +102,19 @@ export interface CalculationResult {
   calculatedAt: string;
 }
 
-// ── DB 타입 ───────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// DB 타입
+// ═══════════════════════════════════════════════════════════════════════════════
 
 interface ZoneData {
   zone_id: string;
+  project_type: "redevelopment" | "reconstruction";
+  project_stage: string;
   avg_appraisal_rate: number;
   base_project_months: number;
   t_admin_remaining: number;
   delay_conflict: number;
+  months_to_construction_start: number;
   current_construction_cost: number;
   r_recent: number;
   r_long: number;
@@ -69,16 +131,24 @@ interface ZoneData {
   total_appraisal_value: number;
   general_sale_area: number;
   member_sale_area: number;
+  holding_loan_ratio: number;
+  annual_holding_rate: number;
+  acquisition_tax_rate: number;
+  move_out_cost: number;
+  target_yield_rate: number;
+  contribution_at_construction: number;
+  existing_apt_pyung: number | null;
 }
 
-// ── 메인 계산 함수 ────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// 메인 계산 함수
+// ═══════════════════════════════════════════════════════════════════════════════
 
 export async function calculateAnalysis(
   input: CalculationInput
 ): Promise<{ data: CalculationResult | null; error: string | null }> {
   const supabase = await createClient();
 
-  // 1. 구역 데이터 조회
   const { data: zone, error: dbError } = await supabase
     .from("zones_data")
     .select("*")
@@ -90,51 +160,68 @@ export async function calculateAnalysis(
   }
 
   const z = zone as ZoneData;
-
-  // 2. 시나리오별 계산
-  const optimistic = computeScenario("optimistic", input, z);
-  const neutral    = computeScenario("neutral", input, z);
-  const pessimistic = computeScenario("pessimistic", input, z);
-
-  // 3. 구역명 가져오기
   const { zones } = await import("@/data/zones");
   const zoneName = zones[input.zoneId] ?? input.zoneId;
 
-  const result: CalculationResult = {
-    zoneId: input.zoneId,
-    zoneName,
-    input,
-    optimistic,
-    neutral,
-    pessimistic,
-    calculatedAt: new Date().toISOString(),
-  };
+  const optimistic  = computeScenario("optimistic", input, z);
+  const neutral     = computeScenario("neutral", input, z);
+  const pessimistic = computeScenario("pessimistic", input, z);
 
-  return { data: result, error: null };
+  return {
+    data: {
+      zoneId: input.zoneId,
+      zoneName,
+      projectType: z.project_type,
+      projectStage: z.project_stage,
+      input,
+      optimistic,
+      neutral,
+      pessimistic,
+      calculatedAt: new Date().toISOString(),
+    },
+    error: null,
+  };
 }
 
-// ── 시나리오별 계산 로직 ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// 시나리오 계산 핵심 로직
+// ═══════════════════════════════════════════════════════════════════════════════
 
 function computeScenario(
   type: "optimistic" | "neutral" | "pessimistic",
   input: CalculationInput,
   z: ZoneData
 ): ScenarioResult {
-  const {
-    purchasePrice, currentDeposit, desiredPyung, officialValuation,
-  } = input;
+  const { purchasePrice, purchaseLoanAmount, currentDeposit, desiredPyung, officialValuation } = input;
 
-  // ── Step 1: T_scenario (사업 기간) ──
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 1: 시나리오별 총 사업 기간 T (개월)
+  // ─────────────────────────────────────────────────────────────────────────
   let T: number;
   if (type === "optimistic") {
+    // 인허가 패스트트랙: 행정 기간 25% 단축
     T = z.base_project_months - z.t_admin_remaining * 0.25;
   } else if (type === "pessimistic") {
+    // 시공사 분쟁/파업 지연 가산
     T = z.base_project_months + z.delay_conflict;
   } else {
     T = z.base_project_months;
   }
 
-  // ── Step 2: P_scenario (일반 분양가) ──
+  // 착공까지 남은 기간과 공사 기간 분리
+  let monthsToStart: number;
+  if (type === "optimistic") {
+    monthsToStart = Math.max(0, z.months_to_construction_start - z.t_admin_remaining * 0.25);
+  } else if (type === "pessimistic") {
+    monthsToStart = z.months_to_construction_start + z.delay_conflict * 0.3;
+  } else {
+    monthsToStart = z.months_to_construction_start;
+  }
+  const constructionPeriodMonths = T - monthsToStart;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 2: 일반 분양가 P_scenario (평당, 원)
+  // ─────────────────────────────────────────────────────────────────────────
   let P: number;
   if (type === "optimistic") {
     P = z.peak_local * 0.95;
@@ -144,134 +231,348 @@ function computeScenario(
     P = z.p_base;
   }
 
-  // ── Step 3: C_T (평당 공사비 — 지수평활법) ──
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 3: 평당 공사비 C_T — 지수평활법(Exponential Smoothing)
+  //
+  // 핵심 아이디어: 최근 급등세(r_recent)가 장기 평균(r_long)으로
+  // 시간이 지날수록 '지수적으로' 수렴한다고 가정.
+  //
+  //   W = e^(-λ × T)          ← 감쇠 가중치. T가 클수록 W→0 (장기 평균 지배)
+  //   r_adj = W×r_recent + (1-W)×r_long
+  //   C_T = C0 × (1 + r_adj)^T  ← 복리(지수) 성장
+  // ─────────────────────────────────────────────────────────────────────────
   const C0 = z.current_construction_cost;
   let C_T: number;
+  let appliedMonthlyRate: number;
 
   if (type === "pessimistic") {
-    // 지수평활법 배제, 최근 급등세 + 위기 프리미엄
-    C_T = C0 * Math.pow(1 + z.r_recent + z.alpha, T);
+    // 지수평활 배제 — 최근 급등세 유지 + 지정학적 위기 프리미엄 가산
+    appliedMonthlyRate = z.r_recent + z.alpha;
+    C_T = C0 * Math.pow(1 + appliedMonthlyRate, T);
   } else {
     let W = Math.exp(-z.decay_factor * T);
-    if (type === "optimistic") W = W * 0.5; // 물가 안정화 가속
-    const r_adj = W * z.r_recent + (1 - W) * z.r_long;
-    C_T = C0 * Math.pow(1 + r_adj, T);
+    if (type === "optimistic") W *= 0.5; // 물가 안정화 가속
+    appliedMonthlyRate = W * z.r_recent + (1 - W) * z.r_long;
+    C_T = C0 * Math.pow(1 + appliedMonthlyRate, T);
   }
 
-  // ── Core Formula 15단계 ──
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 4~7: 사업비 / 수입 / 비례율
+  // ─────────────────────────────────────────────────────────────────────────
+  const totalFloorAreaPyung   = z.total_floor_area / 3.3058;
+  const generalSaleAreaPyung  = z.general_sale_area / 3.3058;
+  const memberSaleAreaPyung   = z.member_sale_area / 3.3058;
 
-  // 1. 예상 감정평가액
-  const estimatedAppraisalValue = officialValuation * z.avg_appraisal_rate;
-
-  // 2. 순수 건축비 (총 연면적은 ㎡ → 평 환산: 1평 = 3.3058㎡)
-  const totalFloorAreaPyung = z.total_floor_area / 3.3058;
-  const totalConstructionCost = C_T * totalFloorAreaPyung;
-
-  // 3. 기타사업비 (건축비의 15%)
-  const baseBusinessExpense = totalConstructionCost * 0.15;
-
-  // 4. 누적 금융비용
-  const financialCost =
+  const totalConstructionCost  = C_T * totalFloorAreaPyung;
+  const baseBusinessExpense    = totalConstructionCost * 0.15;
+  const financialCost          =
     totalConstructionCost * z.pf_loan_ratio * (z.annual_pf_rate / 12) * T;
-
-  // 5. 총 사업비
   const totalCost = totalConstructionCost + baseBusinessExpense + financialCost;
 
-  // 6. 구역 총수입 (분양면적도 ㎡ → 평 환산)
-  const generalSaleAreaPyung = z.general_sale_area / 3.3058;
-  const memberSaleAreaPyung  = z.member_sale_area / 3.3058;
-  const totalRevenue =
-    P * generalSaleAreaPyung +
-    z.member_sale_price_per_pyung * memberSaleAreaPyung;
+  const memberRevenue  = z.member_sale_price_per_pyung * memberSaleAreaPyung;
+  const generalRevenue = P * generalSaleAreaPyung;
+  const totalRevenue   = generalRevenue + memberRevenue;
 
-  // 7. 비례율
+  // 비례율: (총수입 - 총사업비) / 총종전평가액
   const proportionalRate =
     ((totalRevenue - totalCost) / z.total_appraisal_value) * 100;
 
-  // 8. 권리가액
-  const rightsValue = estimatedAppraisalValue * (proportionalRate / 100);
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 8~11: 개인 물건 분석
+  // ─────────────────────────────────────────────────────────────────────────
 
-  // 9. 예상 프리미엄
-  const estimatedPremium = purchasePrice - estimatedAppraisalValue;
+  // 재건축 아파트는 감정평가율이 시세에 가깝게 적용됨
+  const estimatedAppraisalValue = officialValuation * z.avg_appraisal_rate;
+  const rightsValue             = estimatedAppraisalValue * (proportionalRate / 100);
+  const estimatedPremium        = purchasePrice - estimatedAppraisalValue;
+  const premiumBubbleIndex      =
+    estimatedAppraisalValue > 0
+      ? (estimatedPremium / estimatedAppraisalValue) * 100
+      : 0;
 
-  // 10. 대상 분양가 (희망 평형 × 평당 조합원 분양가)
-  const targetMemberSalePrice = desiredPyung * z.member_sale_price_per_pyung;
+  // 프리미엄 회수 소요 연수: 입주 후 시세 상승분이 프리미엄을 언제 회수하는지 추정
+  // 연 2% 시세 상승 가정 (보수적)
+  const annualAppreciationRate = 0.02;
+  const premiumRecoveryYears =
+    estimatedPremium > 0 && z.neighbor_new_apt_price > 0
+      ? Math.log(1 + estimatedPremium / z.neighbor_new_apt_price) /
+        Math.log(1 + annualAppreciationRate)
+      : 0;
 
-  // 11. 추가 분담금 (음수면 환급)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 12~14: 분담금 및 납부 스케줄
+  // ─────────────────────────────────────────────────────────────────────────
+  const targetMemberSalePrice  = desiredPyung * z.member_sale_price_per_pyung;
   const additionalContribution = targetMemberSalePrice - rightsValue;
 
-  // 12. 총 투자 원금
-  const totalInvestmentCost = purchasePrice + additionalContribution;
+  // 분담금 납부 스케줄 (착공 시 50%, 입주 시 50%)
+  const contributionAtConstruction =
+    additionalContribution > 0
+      ? additionalContribution * z.contribution_at_construction
+      : additionalContribution; // 환급이면 입주 시 일괄 지급
+  const contributionAtCompletion =
+    additionalContribution > 0
+      ? additionalContribution * (1 - z.contribution_at_construction)
+      : 0;
 
-  // 13. 초기 실투자금
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 15: 부대 비용
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // 취득세 (매수가 기준 — 조합원 입주권 취득)
+  const acquisitionTax = purchasePrice * z.acquisition_tax_rate;
+
+  // 보유기간 이자 비용: 대출금 × 월 금리 × 총 보유 개월
+  // 총 보유 기간 = 지금부터 입주까지 (T개월)
+  const holdingInterestCost =
+    purchaseLoanAmount * (z.annual_holding_rate / 12) * T;
+
+  // 이사/명도비
+  const moveOutCost = z.move_out_cost;
+
+  const totalAdditionalCosts = acquisitionTax + holdingInterestCost + moveOutCost;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 16: 투자 원금 및 수익
+  // ─────────────────────────────────────────────────────────────────────────
+  const totalInvestmentCost     = purchasePrice + additionalContribution;
+  const totalInvestmentWithCosts = totalInvestmentCost + totalAdditionalCosts;
   const actualInitialInvestment = purchasePrice - currentDeposit;
+  // 실제 현금 투입 (대출 및 보증금 레버리지 제외)
+  const effectiveCash           = purchasePrice - purchaseLoanAmount - currentDeposit;
 
-  // 14. 순수익
-  const netProfit = z.neighbor_new_apt_price - totalInvestmentCost;
+  const netProfit             = z.neighbor_new_apt_price - totalInvestmentCost;
+  const netProfitAfterCosts   = z.neighbor_new_apt_price - totalInvestmentWithCosts;
 
-  // 15. 투자 수익률 (ROE)
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 17: 수익률 지표
+  // ─────────────────────────────────────────────────────────────────────────
   const returnOnEquity =
     actualInitialInvestment > 0
       ? (netProfit / actualInitialInvestment) * 100
       : 0;
 
-  // ── 추가 지표 ──
+  const returnOnTotalInvestment =
+    totalInvestmentWithCosts > 0
+      ? (netProfitAfterCosts / totalInvestmentWithCosts) * 100
+      : 0;
 
-  // 손익분기 일반 분양가 (netProfit = 0이 되는 P)
-  // neighbor_new_apt_price = P_break * generalSaleAreaPyung + memberRevenue - totalCostExcludingP
-  // → P_break = (neighbor + totalCostExcludingP - memberRevenue) / generalSaleAreaPyung
-  const memberRevenue = z.member_sale_price_per_pyung * memberSaleAreaPyung;
-  const totalCostExcludingGeneralRevenue = totalCost;
+  const yearsToCompletion = T / 12;
+  // 연환산 수익률: (1 + 총수익률)^(1/n) - 1
+  const annualizedReturn =
+    actualInitialInvestment > 0 && yearsToCompletion > 0
+      ? (Math.pow(1 + netProfit / actualInitialInvestment, 1 / yearsToCompletion) - 1) * 100
+      : 0;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 18: IRR 계산 (뉴턴-랩슨 근사)
+  //
+  // 현금흐름 모델:
+  //   t=0:          -(매수가 - 대출금 - 보증금) - 취득세  [초기 현금 지출]
+  //   t=착공:       -착공 시 분담금
+  //   t=T(입주):    +입주 시세 + 보증금 반환 - 입주 시 분담금 - 대출금 상환
+  // ─────────────────────────────────────────────────────────────────────────
+  const cashFlows: Array<{ month: number; amount: number }> = [
+    { month: 0,                          amount: -(effectiveCash + acquisitionTax + moveOutCost) },
+    { month: Math.round(monthsToStart),  amount: -(contributionAtConstruction) },
+    { month: Math.round(T),              amount: z.neighbor_new_apt_price + currentDeposit - contributionAtCompletion - purchaseLoanAmount },
+  ];
+
+  const irr = calcIRR(cashFlows) * 100; // 월→연 환산은 calcIRR 내부에서 처리
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 19: NPV (순현재가치)
+  //   목표 수익률(target_yield_rate)을 할인율로 적용
+  //   NPV > 0 이면 기회비용 이상의 수익
+  // ─────────────────────────────────────────────────────────────────────────
+  const monthlyDiscount = z.target_yield_rate / 12;
+  const npv = cashFlows.reduce((acc, cf) => {
+    return acc + cf.amount / Math.pow(1 + monthlyDiscount, cf.month);
+  }, 0);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 20: 리스크 지표
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // 손익분기 일반분양가 (netProfit = 0 이 되는 평당 분양가)
+  // neighbor = (P_break × generalSaleAreaPyung + memberRevenue) - totalCostFixed - purchasePrice - additionalContribution(P_break에 의존)
+  // 단순화: 분담금이 고정이라 가정하면:
+  // P_break = (totalInvestmentCost - memberRevenue + totalConstructionCost + baseBusinessExpense + financialCost) / generalSaleAreaPyung
   const breakEvenGeneralSalePrice =
     generalSaleAreaPyung > 0
-      ? (z.neighbor_new_apt_price +
-          totalCostExcludingGeneralRevenue -
-          memberRevenue +
-          purchasePrice +
-          targetMemberSalePrice -
-          z.neighbor_new_apt_price) /
-        generalSaleAreaPyung
+      ? (totalCost - memberRevenue + totalInvestmentCost) / generalSaleAreaPyung
       : 0;
 
-  // 공사비 쿠션 (순수익이 0이 될 때까지 버틸 수 있는 평당 공사비 한계치)
-  // totalInvestmentCost = neighbor → additionalContribution = neighbor - purchasePrice
-  // rightsValue = targetMemberSalePrice - (neighbor - purchasePrice)
-  // rightsValue = estimatedAppraisalValue × (proportionalRate_new / 100)
-  // 역산이 복잡하므로 근사값: 현재 C_T에서 netProfit / totalFloorAreaPyung 만큼 여유
-  const cushionAgainstCostIncrease =
-    totalFloorAreaPyung > 0
-      ? C_T + netProfit / totalFloorAreaPyung
-      : C_T;
+  // 최대 감당 가능 분담금: 순수익 0이 되는 분담금 상한
+  const maxAffordableContribution = z.neighbor_new_apt_price - purchasePrice;
 
-  // 프리미엄 버블 지수
-  const premiumBubbleIndex =
-    estimatedAppraisalValue > 0
-      ? (estimatedPremium / estimatedAppraisalValue) * 100
-      : 0;
+  // 기회비용 대비 초과 수익 (연 목표수익률 투자 대비)
+  const opportunityCostGain =
+    actualInitialInvestment * (Math.pow(1 + z.target_yield_rate, yearsToCompletion) - 1);
+  const opportunityCostGap = netProfit - opportunityCostGain;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 21: 단계별 현금흐름
+  // ─────────────────────────────────────────────────────────────────────────
+  const stageCashFlows = buildStageCashFlows(
+    type, input, z, T, monthsToStart,
+    acquisitionTax, moveOutCost,
+    contributionAtConstruction, contributionAtCompletion
+  );
 
   const LABELS = {
     optimistic: "낙관 시나리오",
-    neutral: "중립 시나리오",
-    pessimistic: "비관 시나리오",
+    neutral:    "중립 시나리오",
+    pessimistic:"비관 시나리오",
   };
 
   return {
     scenarioType: type,
     scenarioLabel: LABELS[type],
     appliedMonths: Math.round(T),
+    monthsToConstructionStart: Math.round(monthsToStart),
+    constructionPeriodMonths: Math.round(constructionPeriodMonths),
     appliedConstructionCostPerPyung: Math.round(C_T),
+    constructionCostGrowthRate: Math.round(appliedMonthlyRate * 10000) / 100, // 소수점 2자리 %
     appliedGeneralSalePrice: Math.round(P),
     estimatedAppraisalValue: Math.round(estimatedAppraisalValue),
-    estimatedPremium: Math.round(estimatedPremium),
-    premiumBubbleIndex: Math.round(premiumBubbleIndex * 10) / 10,
     proportionalRate: Math.round(proportionalRate * 10) / 10,
     rightsValue: Math.round(rightsValue),
+    estimatedPremium: Math.round(estimatedPremium),
+    premiumBubbleIndex: Math.round(premiumBubbleIndex * 10) / 10,
+    premiumRecoveryYears: Math.round(premiumRecoveryYears * 10) / 10,
+    targetMemberSalePrice: Math.round(targetMemberSalePrice),
     additionalContribution: Math.round(additionalContribution),
+    contributionAtConstruction: Math.round(contributionAtConstruction),
+    contributionAtCompletion: Math.round(contributionAtCompletion),
+    acquisitionTax: Math.round(acquisitionTax),
+    holdingInterestCost: Math.round(holdingInterestCost),
+    moveOutCost: Math.round(moveOutCost),
+    totalAdditionalCosts: Math.round(totalAdditionalCosts),
     totalInvestmentCost: Math.round(totalInvestmentCost),
+    totalInvestmentWithCosts: Math.round(totalInvestmentWithCosts),
     actualInitialInvestment: Math.round(actualInitialInvestment),
+    effectiveCash: Math.round(effectiveCash),
     netProfit: Math.round(netProfit),
+    netProfitAfterCosts: Math.round(netProfitAfterCosts),
     returnOnEquity: Math.round(returnOnEquity * 10) / 10,
+    returnOnTotalInvestment: Math.round(returnOnTotalInvestment * 10) / 10,
+    annualizedReturn: Math.round(annualizedReturn * 10) / 10,
+    irr: Math.round(irr * 10) / 10,
+    npv: Math.round(npv),
     breakEvenGeneralSalePrice: Math.round(breakEvenGeneralSalePrice),
-    cushionAgainstCostIncrease: Math.round(cushionAgainstCostIncrease),
+    maxAffordableContribution: Math.round(maxAffordableContribution),
+    opportunityCostGap: Math.round(opportunityCostGap),
+    stageCashFlows,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 단계별 현금흐름 빌더
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function buildStageCashFlows(
+  type: "optimistic" | "neutral" | "pessimistic",
+  input: CalculationInput,
+  z: ZoneData,
+  T: number,
+  monthsToStart: number,
+  acquisitionTax: number,
+  moveOutCost: number,
+  contributionAtConstruction: number,
+  contributionAtCompletion: number,
+): StageCashFlow[] {
+  const { purchasePrice, purchaseLoanAmount, currentDeposit } = input;
+  const effectiveCash = purchasePrice - purchaseLoanAmount - currentDeposit;
+
+  // 착공 기준 이주 시점: 착공 2개월 전
+  const relocationMonth = Math.max(0, monthsToStart - 2);
+  // 입주 시점
+  const completionMonth = Math.round(T);
+
+  const stages: Array<{ stage: string; label: string; month: number; out: number; inc: number }> = [
+    {
+      stage: "purchase",
+      label: "매수 (현재)",
+      month: 0,
+      out: effectiveCash + acquisitionTax,
+      inc: 0,
+    },
+    {
+      stage: "relocation",
+      label: "이주/철거",
+      month: Math.round(relocationMonth),
+      out: moveOutCost,
+      // 이주비 지급 (관리처분 시 통상 감정평가액의 일정 비율): 보수적으로 0 처리
+      inc: 0,
+    },
+    {
+      stage: "construction_start",
+      label: "착공",
+      month: Math.round(monthsToStart),
+      out: contributionAtConstruction > 0 ? contributionAtConstruction : 0,
+      inc: contributionAtConstruction < 0 ? Math.abs(contributionAtConstruction) : 0,
+    },
+    {
+      stage: "completion",
+      label: "준공/입주",
+      month: completionMonth,
+      out: contributionAtCompletion > 0 ? contributionAtCompletion + purchaseLoanAmount : purchaseLoanAmount,
+      inc: z.neighbor_new_apt_price + currentDeposit + (contributionAtCompletion < 0 ? Math.abs(contributionAtCompletion) : 0),
+    },
+  ];
+
+  let cumulativeOut = 0;
+  let cumulativeIn  = 0;
+
+  return stages.map((s) => {
+    cumulativeOut += s.out;
+    cumulativeIn  += s.inc;
+    return {
+      stage: s.stage,
+      label: s.label,
+      monthFromNow: s.month,
+      cumulativeCashOut: Math.round(cumulativeOut),
+      cumulativeCashIn: Math.round(cumulativeIn),
+      netCashPosition: Math.round(cumulativeIn - cumulativeOut),
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// IRR 계산 — 뉴턴-랩슨(Newton-Raphson) 수치 해석
+// 월간 현금흐름 기반 → 연간 IRR로 환산
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function calcIRR(cashFlows: Array<{ month: number; amount: number }>): number {
+  const MAX_ITER = 1000;
+  const TOLERANCE = 1e-8;
+  let rate = 0.01; // 초기값: 월 1%
+
+  for (let i = 0; i < MAX_ITER; i++) {
+    let npv = 0;
+    let dnpv = 0; // NPV 미분값
+
+    for (const cf of cashFlows) {
+      const discount = Math.pow(1 + rate, cf.month);
+      npv  += cf.amount / discount;
+      dnpv -= (cf.month * cf.amount) / (discount * (1 + rate));
+    }
+
+    if (Math.abs(dnpv) < TOLERANCE) break;
+    const newRate = rate - npv / dnpv;
+
+    if (Math.abs(newRate - rate) < TOLERANCE) {
+      rate = newRate;
+      break;
+    }
+    rate = newRate;
+
+    // 발산 방지
+    if (rate < -0.99) rate = -0.5;
+    if (rate > 1)     rate = 0.5;
+  }
+
+  // 월 IRR → 연 IRR 환산: (1 + r_monthly)^12 - 1
+  return Math.pow(1 + rate, 12) - 1;
 }
