@@ -115,9 +115,9 @@ interface ParsedRow {
 // 컬럼: 번호, 자치구, 사업구분, 사업장명, 대표지번, 진행단계, ...
 function parseSeoul(lines: string[]): ParsedRow[] {
   return lines.flatMap((line) => {
-    const c = line.split("\t");
+    const c = line.replace(/\r/g, "").split("\t").map(s => s.trim());
     if (c.length < 6) return [];
-    if (c[0].trim() === "번호") return [];
+    if (c[0] === "번호" || c[0] === "연번") return [];
     const region = c[1]?.trim() ?? "";
     const name = c[3]?.trim() ?? "";
     if (!name || !region) return [];
@@ -164,12 +164,13 @@ function parseSeoul(lines: string[]): ParsedRow[] {
 // 57:주거환경개선시행방법 58:국비지원
 function parseGyeonggi(lines: string[]): ParsedRow[] {
   return lines.flatMap((line) => {
-    // CSV(쉼표) 또는 TSV(탭) 자동 감지
-    const sep = line.includes("\t") ? "\t" : ",";
-    const c = line.split(sep).map(s => s.replace(/^"|"$/g, "").trim());
-    if (c.length < 10) return [];
+    // CSV(쉼표) 또는 TSV(탭) 자동 감지, \r 제거
+    const cleanLine = line.replace(/\r/g, "");
+    const sep = cleanLine.includes("\t") ? "\t" : ",";
+    const c = cleanLine.split(sep).map(s => s.replace(/^"|"$/g, "").trim());
+    if (c.length < 5) return [];
     // 헤더행/빈행 스킵: 첫 셀이 숫자가 아니면 건너뜀
-    if (!c[0].match(/^\d+$/)) return [];
+    if (!c[0].replace(/\uFEFF/g, "").match(/^\d+$/)) return [];
     const region = c[1] ?? "";
     const name   = c[4] ?? "";
     if (!name || !region) return [];
@@ -230,16 +231,18 @@ export default function AdminUploadPage() {
   const [debugInfo, setDebugInfo] = useState<string>("");
 
   const parse = useCallback(() => {
-    const lines = pasteText.trim().split("\n").filter(Boolean);
+    // \r\n, \r 모두 정규화
+    const normalized = pasteText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const lines = normalized.trim().split("\n").filter(Boolean);
 
-    // 디버그: 첫 3줄 구조 출력
     const firstLine = lines[0] ?? "";
     const sep = firstLine.includes("\t") ? "탭" : firstLine.includes(",") ? "쉼표" : "알수없음";
     const cols = firstLine.split(firstLine.includes("\t") ? "\t" : ",");
-    const dbg = `총 ${lines.length}줄 · 구분자: ${sep} · 첫줄 컬럼수: ${cols.length} · 첫셀: "${cols[0]?.trim()}"`;
+    const parsed = format === "seoul" ? parseSeoul(lines) : parseGyeonggi(lines);
+
+    const dbg = `총 ${lines.length}줄 · 구분자: ${sep} · 컬럼수: ${cols.length} · 첫셀: "${cols[0]?.trim()}" · 파싱결과: ${parsed.length}행`;
     setDebugInfo(dbg);
 
-    const parsed = format === "seoul" ? parseSeoul(lines) : parseGyeonggi(lines);
     setRows(parsed);
     setStatus("idle");
     setResultMsg("");
