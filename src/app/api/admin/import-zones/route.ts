@@ -49,10 +49,44 @@ interface ZoneInput {
   zoneId: string;
   name: string;
   gu: string;
-  address: string;   // 대표지번
+  region: string;
+  address: string;
   projectType: string;
   projectStage: string;
   lawdCd: string;
+  // 경기도 상세 필드 (optional)
+  zone_area_sqm?: number | null;
+  existing_building_year?: number | null;
+  existing_units_total?: number | null;
+  planned_units_total?: number | null;
+  planned_units_member?: number | null;
+  planned_units_general?: number | null;
+  planned_units_rent?: number | null;
+  new_units_sale_total?: number | null;
+  new_units_sale_u40?: number | null;
+  new_units_sale_40_60?: number | null;
+  new_units_sale_60_85?: number | null;
+  new_units_sale_85_135?: number | null;
+  new_units_sale_o135?: number | null;
+  new_units_rent_total?: number | null;
+  floor_area_ratio_existing?: number | null;
+  floor_area_ratio_new?: number | null;
+  land_owners_count?: number | null;
+  association_members_count?: number | null;
+  project_period_start?: string | null;
+  project_period_end?: string | null;
+  basic_plan_date?: string | null;
+  zone_designation_date?: string | null;
+  zone_designation_change_date?: string | null;
+  promotion_committee_date?: string | null;
+  safety_inspection_grade?: string | null;
+  association_approval_date?: string | null;
+  project_implementation_date?: string | null;
+  management_disposal_date?: string | null;
+  construction_start_date?: string | null;
+  general_sale_date?: string | null;
+  completion_date?: string | null;
+  project_operator?: string | null;
 }
 
 /** 카카오 지오코딩: 주소 → lat/lng */
@@ -113,14 +147,52 @@ export async function POST(req: NextRequest) {
       coords = await geocode(zone.address);
     }
 
+    // 경기도 상세 필드 공통 패치
+    const detailPatch: Record<string, unknown> = {
+      sigungu: zone.region || null,
+      zone_area_sqm: zone.zone_area_sqm ?? null,
+      existing_building_year: zone.existing_building_year ?? null,
+      existing_units_total: zone.existing_units_total ?? null,
+      planned_units_total: zone.planned_units_total ?? null,
+      planned_units_member: zone.planned_units_member ?? null,
+      planned_units_general: zone.planned_units_general ?? null,
+      planned_units_rent: zone.planned_units_rent ?? null,
+      new_units_sale_total: zone.new_units_sale_total ?? null,
+      new_units_sale_u40: zone.new_units_sale_u40 ?? null,
+      new_units_sale_40_60: zone.new_units_sale_40_60 ?? null,
+      new_units_sale_60_85: zone.new_units_sale_60_85 ?? null,
+      new_units_sale_85_135: zone.new_units_sale_85_135 ?? null,
+      new_units_sale_o135: zone.new_units_sale_o135 ?? null,
+      new_units_rent_total: zone.new_units_rent_total ?? null,
+      floor_area_ratio_existing: zone.floor_area_ratio_existing ?? null,
+      floor_area_ratio_new: zone.floor_area_ratio_new ?? null,
+      land_owners_count: zone.land_owners_count ?? null,
+      association_members_count: zone.association_members_count ?? null,
+      project_period_start: zone.project_period_start ?? null,
+      project_period_end: zone.project_period_end ?? null,
+      basic_plan_date: zone.basic_plan_date ?? null,
+      zone_designation_date: zone.zone_designation_date ?? null,
+      zone_designation_change_date: zone.zone_designation_change_date ?? null,
+      promotion_committee_date: zone.promotion_committee_date ?? null,
+      safety_inspection_grade: zone.safety_inspection_grade ?? null,
+      association_approval_date: zone.association_approval_date ?? null,
+      project_implementation_date: zone.project_implementation_date ?? null,
+      management_disposal_date: zone.management_disposal_date ?? null,
+      construction_start_date: zone.construction_start_date ?? null,
+      general_sale_date: zone.general_sale_date ?? null,
+      completion_date: zone.completion_date ?? null,
+      project_operator: zone.project_operator ?? null,
+    };
+
     if (ex) {
-      // 기존 구역: stage / type / lawd_cd + 좌표(없으면) 업데이트
+      // 기존 구역: stage / type / lawd_cd + 좌표(없으면) + 상세 업데이트
       const patch: Record<string, unknown> = {
         project_stage: zone.projectStage,
         project_type: zone.projectType,
         lawd_cd: zone.lawdCd || null,
         zone_name: zone.name,
         updated_at: new Date().toISOString(),
+        ...detailPatch,
       };
       if (coords) { patch.lat = coords.lat; patch.lng = coords.lng; }
 
@@ -137,6 +209,7 @@ export async function POST(req: NextRequest) {
         .from("zones_data")
         .insert({
           ...DEFAULT_ROW,
+          ...detailPatch,
           zone_id: zone.zoneId,
           zone_name: zone.name,
           project_type: zone.projectType,
