@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createBrowserClient } from '@supabase/supabase-js';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import Hero from '@/components/home/Hero';
@@ -8,10 +9,14 @@ import Features from '@/components/home/Features';
 
 type Props = { params: Promise<{ zone: string }> };
 
+// generateStaticParams는 빌드 타임에 실행 — cookies() 없는 공개 클라이언트 사용
 export async function generateStaticParams() {
-  const supabase = await createClient();
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   const { data } = await supabase.from('zones_data').select('zone_id');
-  return (data ?? []).map((z) => ({ zone: z.zone_id }));
+  return (data ?? []).map((z: { zone_id: string }) => ({ zone: z.zone_id }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
