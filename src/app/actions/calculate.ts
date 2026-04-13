@@ -156,6 +156,7 @@ interface ZoneData {
   land_official_price_per_sqm: number | null; // 개별공시지가 (원/㎡) — 관리자 입력
   construction_start_announced_ym: string | null; // 착공예정월 (YYYYMM) — 공표 시 입력
   member_sale_price_source: "cost_estimated" | "announced" | "manual";
+  zone_name: string | null;
 }
 
 /**
@@ -255,8 +256,7 @@ export async function calculateAnalysis(
   }
 
   const z = zone as ZoneData;
-  const { zones } = await import("@/data/zones");
-  const zoneName = zones[input.zoneId] ?? input.zoneId;
+  const zoneName = z.zone_name ?? input.zoneId;
 
   // 실시간 시장 데이터 수집 (실패 시 자동 fallback)
   const marketData = await fetchMarketData({
