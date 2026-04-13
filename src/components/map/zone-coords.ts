@@ -18,19 +18,49 @@ export interface ZoneMapMeta {
 
 export const ZONE_MAP_DATA: ZoneMapMeta[] = [
   // ── 재건축 (강남권) ── active
-  { zoneId: "banpo",    lat: 37.5065, lng: 126.9987, status: "active",      projectType: "reconstruction",
+  { zoneId: "banpo",   lat: 37.5065, lng: 126.9987, status: "active", projectType: "reconstruction",
     defaultValues: { purchasePrice: 4500000000, officialValuation: 2800000000, landShareSqm: 16, desiredPyung: 59 } },
-  { zoneId: "gaepo",    lat: 37.4803, lng: 127.0677, status: "coming_soon", projectType: "reconstruction" },
-  { zoneId: "gaepo4",   lat: 37.4785, lng: 127.0630, status: "coming_soon", projectType: "reconstruction" },
-  { zoneId: "dunchon",  lat: 37.4930, lng: 127.1218, status: "coming_soon", projectType: "reconstruction" },
-  { zoneId: "chamsil",  lat: 37.5093, lng: 127.0917, status: "coming_soon", projectType: "reconstruction" },
-  { zoneId: "seocho",   lat: 37.4840, lng: 127.0070, status: "coming_soon", projectType: "reconstruction" },
-  { zoneId: "heukseok9",lat: 37.5085, lng: 126.9702, status: "coming_soon", projectType: "reconstruction" },
+  { zoneId: "gaepo",   lat: 37.4803, lng: 127.0677, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 3500000000, officialValuation: 2200000000, landShareSqm: 15, desiredPyung: 59 } },
+  { zoneId: "gaepo4",  lat: 37.4785, lng: 127.0630, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 3000000000, officialValuation: 1800000000, landShareSqm: 13, desiredPyung: 59 } },
+  { zoneId: "dunchon", lat: 37.4930, lng: 127.1218, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 2800000000, officialValuation: 1600000000, landShareSqm: 12, desiredPyung: 59 } },
+  { zoneId: "chamsil", lat: 37.5093, lng: 127.0917, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 4000000000, officialValuation: 2500000000, landShareSqm: 18, desiredPyung: 84 } },
+  { zoneId: "seocho",  lat: 37.4840, lng: 127.0070, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 4800000000, officialValuation: 3000000000, landShareSqm: 17, desiredPyung: 84 } },
 
-  // ── 재건축 (경기)
-  { zoneId: "gwacheon",  lat: 37.4249, lng: 126.9954, status: "coming_soon", projectType: "reconstruction" },
-  { zoneId: "gwacheon1", lat: 37.4278, lng: 126.9875, status: "coming_soon", projectType: "reconstruction" },
-  { zoneId: "gwacheon2", lat: 37.4261, lng: 126.9895, status: "coming_soon", projectType: "reconstruction" },
+  // ── 재개발 (흑석) ── 준비중
+  { zoneId: "heukseok9", lat: 37.5085, lng: 126.9702, status: "coming_soon", projectType: "redevelopment" },
+
+  // ── 재건축 (경기 과천) ── active
+  { zoneId: "gwacheon",  lat: 37.4249, lng: 126.9954, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1800000000, officialValuation: 1000000000, landShareSqm: 14, desiredPyung: 59 } },
+  { zoneId: "gwacheon1", lat: 37.4278, lng: 126.9875, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1700000000, officialValuation: 950000000,  landShareSqm: 13, desiredPyung: 59 } },
+  { zoneId: "gwacheon2", lat: 37.4261, lng: 126.9895, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1650000000, officialValuation: 900000000,  landShareSqm: 13, desiredPyung: 59 } },
+
+  // ── 재건축 (경기 분당) ── active
+  { zoneId: "bundang_sunae", lat: 37.3796, lng: 127.1219, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1500000000, officialValuation: 850000000,  landShareSqm: 12, desiredPyung: 59 } },
+  { zoneId: "bundang_seohyeon", lat: 37.3836, lng: 127.1188, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1400000000, officialValuation: 800000000,  landShareSqm: 11, desiredPyung: 59 } },
+
+  // ── 재건축 (경기 평촌) ── active
+  { zoneId: "pyeongchon", lat: 37.3894, lng: 126.9529, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1200000000, officialValuation: 650000000,  landShareSqm: 11, desiredPyung: 59 } },
+
+  // ── 재건축 (경기 일산) ── active
+  { zoneId: "ilsan",  lat: 37.6580, lng: 126.7701, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 900000000,  officialValuation: 480000000,  landShareSqm: 10, desiredPyung: 59 } },
+
+  // ── 재건축 (서울 노원/목동) ── active
+  { zoneId: "nowon",  lat: 37.6550, lng: 127.0562, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1100000000, officialValuation: 600000000,  landShareSqm: 10, desiredPyung: 59 } },
+  { zoneId: "mokdong", lat: 37.5265, lng: 126.8746, status: "active", projectType: "reconstruction",
+    defaultValues: { purchasePrice: 1800000000, officialValuation: 1050000000, landShareSqm: 13, desiredPyung: 59 } },
 
   // ── 재개발 (용산/강북권) ── 준비중
   { zoneId: "hannam3",    lat: 37.5373, lng: 126.9993, status: "coming_soon", projectType: "redevelopment" },

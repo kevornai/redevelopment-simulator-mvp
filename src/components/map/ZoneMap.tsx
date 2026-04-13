@@ -74,10 +74,10 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
     try {
       window.kakao.maps.load(() => {
         try {
-          const center = new window.kakao.maps.LatLng(37.52, 127.00);
+          const center = new window.kakao.maps.LatLng(37.52, 127.05);
           const map = new window.kakao.maps.Map(containerRef.current!, {
             center,
-            level: 8,
+            level: 10,
           });
 
           ZONE_MAP_DATA.forEach((zone) => {

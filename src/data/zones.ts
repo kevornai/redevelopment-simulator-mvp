@@ -31,8 +31,18 @@ export const zones: Record<string, string> = {
   'mapo': '마포로구역',
   'gajwa': '가좌구역',
   'yeonsinnae': '연신내구역',
-  // 경기도
+  // 경기도 과천
   'gwacheon': '과천주공7단지',
   'gwacheon1': '과천1구역',
   'gwacheon2': '과천2구역',
+  // 경기도 분당
+  'bundang_sunae': '분당 수내동',
+  'bundang_seohyeon': '분당 서현동',
+  // 경기도 평촌
+  'pyeongchon': '평촌 신도시',
+  // 경기도 일산
+  'ilsan': '일산 신도시',
+  // 서울 노원/목동
+  'nowon': '노원 재건축',
+  'mokdong': '목동 아파트',
 };
