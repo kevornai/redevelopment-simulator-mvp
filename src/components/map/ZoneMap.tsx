@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ZONE_MAP_DATA, type ZoneMapMeta } from "./zone-coords";
-import { zones } from "@/data/zones";
+import type { ZoneMapMeta } from "./zone-coords";
 
 declare global {
   interface Window {
@@ -17,11 +16,32 @@ declare global {
     };
   }
 }
-interface KakaoMap   { setCenter: (l: object) => void }
+interface KakaoMap    { setCenter: (l: object) => void }
 interface KakaoMarker { setMap: (m: KakaoMap | null) => void }
 interface KakaoOverlay { setMap: (m: KakaoMap | null) => void }
 
 type MapStatus = "idle" | "loading" | "ready" | "error";
+
+// DB에서 오는 구역 데이터
+interface ZoneRow {
+  zone_id: string;
+  zone_name: string | null;
+  project_type: "reconstruction" | "redevelopment";
+  project_stage: string;
+  lat: number;
+  lng: number;
+}
+
+// 단계 → 한글 + 색상
+const STAGE_META: Record<string, { label: string; color: string; textColor: string }> = {
+  zone_designation:       { label: "구역지정",   color: "#71717a", textColor: "#fff" },
+  basic_plan:             { label: "기본계획",   color: "#71717a", textColor: "#fff" },
+  project_implementation: { label: "사업시행",   color: "#d97706", textColor: "#fff" },
+  management_disposal:    { label: "관리처분",   color: "#ea580c", textColor: "#fff" },
+  relocation:             { label: "이주·철거", color: "#dc2626", textColor: "#fff" },
+  construction_start:     { label: "착공",       color: "#2563eb", textColor: "#fff" },
+  completion:             { label: "준공",       color: "#16a34a", textColor: "#fff" },
+};
 
 interface ZoneMapProps {
   onSelect: (zoneId: string, defaults?: ZoneMapMeta["defaultValues"]) => void;
@@ -29,46 +49,44 @@ interface ZoneMapProps {
 }
 
 export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<MapStatus>("idle");
-  const [errorMsg, setErrorMsg] = useState<string>("");
-  const initializedRef = useRef(false); // 지도를 한 번만 init
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const [status, setStatus]   = useState<MapStatus>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [zones, setZones]     = useState<ZoneRow[]>([]);
+  const initializedRef = useRef(false);
 
   const apiKey = process.env.NEXT_PUBLIC_KAKAO_MAP_KEY;
 
-  // ── 1. Kakao SDK 스크립트 로드
+  // ── 1. 구역 목록 fetch (DB)
+  useEffect(() => {
+    fetch("/api/zones")
+      .then((r) => r.json())
+      .then((d) => { if (d.zones) setZones(d.zones); })
+      .catch(() => {});
+  }, []);
+
+  // ── 2. Kakao SDK 스크립트 로드
   useEffect(() => {
     if (!apiKey) return;
-
-    // 이미 로드됐으면 바로 진행
-    if (window.kakao?.maps) {
-      setStatus("ready");
-      return;
-    }
-
+    if (window.kakao?.maps) { setStatus("ready"); return; }
     setStatus("loading");
 
     const script = document.createElement("script");
-    // 명시적 https:// — 프로토콜 상대 URL(//...)은 localhost(http)에서 실패할 수 있음
     script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${apiKey}&autoload=false`;
-
-    script.addEventListener("load", () => {
-      setStatus("ready");
-    });
-
+    script.addEventListener("load", () => setStatus("ready"));
     script.addEventListener("error", () => {
       setStatus("error");
       setErrorMsg("스크립트 로드 실패 — API 키 또는 활성화 상태를 확인하세요.");
     });
-
     document.head.appendChild(script);
   }, [apiKey]);
 
-  // ── 2. 지도 초기화 (SDK ready + container 마운트 후)
+  // ── 3. 지도 초기화 (SDK ready + 구역 데이터 둘 다 있을 때)
   useEffect(() => {
     if (status !== "ready") return;
     if (!containerRef.current) return;
-    if (initializedRef.current) return; // 중복 init 방지
+    if (zones.length === 0) return;
+    if (initializedRef.current) return;
     initializedRef.current = true;
 
     try {
@@ -80,27 +98,36 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
             level: 10,
           });
 
-          ZONE_MAP_DATA.forEach((zone) => {
+          zones.forEach((zone) => {
             const pos = new window.kakao.maps.LatLng(zone.lat, zone.lng);
-            const isActive = zone.status === "active";
-            const isSelected = zone.zoneId === selectedZoneId;
+            const isSelected = zone.zone_id === selectedZoneId;
+            const stageMeta = STAGE_META[zone.project_stage] ?? STAGE_META.zone_designation;
+            const isActive = zone.project_type === "reconstruction";
+            const displayName = zone.zone_name ?? zone.zone_id;
 
-            // 기본 마커 (클릭 영역 확보용)
-            const marker = new window.kakao.maps.Marker({ position: pos, map });
-
-            // 커스텀 라벨 오버레이
             const el = document.createElement("div");
             el.innerHTML = `
               <div style="
-                background:${isSelected ? "#2563eb" : isActive ? "#1d4ed8" : "#71717a"};
-                color:#fff; border-radius:12px; padding:3px 8px;
-                font-size:11px; font-weight:700; white-space:nowrap;
+                display:flex; flex-direction:column; align-items:center; gap:2px;
                 cursor:${isActive ? "pointer" : "default"};
-                box-shadow:0 2px 8px rgba(0,0,0,.3);
-                border:2px solid ${isSelected ? "#93c5fd" : "transparent"};
-                opacity:${isActive ? 1 : 0.6};
-                margin-bottom:4px;
-              ">${zones[zone.zoneId] ?? zone.zoneId}${!isActive ? " 🔒" : ""}</div>`;
+              ">
+                <div style="
+                  background:${isSelected ? "#1e40af" : isActive ? stageMeta.color : "#a1a1aa"};
+                  color:${stageMeta.textColor};
+                  border-radius:10px; padding:3px 8px;
+                  font-size:11px; font-weight:700; white-space:nowrap;
+                  box-shadow:0 2px 8px rgba(0,0,0,.25);
+                  border:2px solid ${isSelected ? "#93c5fd" : "transparent"};
+                  opacity:${isActive ? 1 : 0.65};
+                ">${displayName}${!isActive ? " 🔒" : ""}</div>
+                <div style="
+                  background:${isActive ? stageMeta.color : "#d4d4d8"};
+                  color:#fff;
+                  border-radius:6px; padding:1px 6px;
+                  font-size:9px; font-weight:600; white-space:nowrap;
+                  opacity:${isActive ? 0.9 : 0.6};
+                ">${stageMeta.label}</div>
+              </div>`;
 
             new window.kakao.maps.CustomOverlay({
               position: pos,
@@ -109,12 +136,12 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
               zIndex: isActive ? 10 : 5,
             }).setMap(map);
 
-            marker.setMap(null); // 기본 핀 숨김
+            // 기본 마커 숨김
+            const marker = new window.kakao.maps.Marker({ position: pos, map });
+            marker.setMap(null);
 
             if (isActive) {
-              el.addEventListener("click", () => {
-                onSelect(zone.zoneId, zone.defaultValues);
-              });
+              el.addEventListener("click", () => onSelect(zone.zone_id));
             }
           });
         } catch (e) {
@@ -124,71 +151,70 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
       });
     } catch (e) {
       setStatus("error");
-      setErrorMsg(`kakao.maps.load 오류: ${e}. 카카오 콘솔에서 플랫폼(Web) 도메인을 등록했는지 확인하세요.`);
+      setErrorMsg(`kakao.maps.load 오류: ${e}`);
     }
-  }, [status, selectedZoneId, onSelect]);
+  }, [status, zones, selectedZoneId, onSelect]);
 
-  // ── API 키 없음
   if (!apiKey) {
     return (
       <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center">
         <p className="text-sm font-semibold text-zinc-600">Kakao Maps API 키가 없습니다</p>
-        <p className="text-xs text-zinc-400 mt-1">
-          .env.local에 <code className="bg-zinc-100 px-1 rounded">NEXT_PUBLIC_KAKAO_MAP_KEY</code> 추가 후 dev 서버 재시작
-        </p>
-        <p className="text-xs text-zinc-400 mt-0.5">
-          발급: developers.kakao.com → 내 애플리케이션 → JavaScript 키
-        </p>
       </div>
     );
   }
 
+  // 단계별 범례 (active 구역에 나타나는 것만)
+  const legendStages = ["management_disposal", "relocation", "construction_start", "project_implementation"] as const;
+
   return (
     <div className="flex flex-col gap-3">
       {/* 범례 */}
-      <div className="flex items-center gap-4 text-xs text-zinc-500">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+        {legendStages.map((s) => (
+          <span key={s} className="flex items-center gap-1.5">
+            <span
+              className="w-2.5 h-2.5 rounded-full inline-block"
+              style={{ background: STAGE_META[s].color }}
+            />
+            {STAGE_META[s].label}
+          </span>
+        ))}
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-blue-600 inline-block" />
-          분석 가능 (클릭 시 자동 입력)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-zinc-400 inline-block" />
-          준비중
+          <span className="w-2.5 h-2.5 rounded-full inline-block bg-zinc-400" />
+          재개발(준비중)
         </span>
       </div>
 
-      {/* 지도 컨테이너 — relative로 오버레이 기준점 확보 */}
-      <div className="relative w-full rounded-2xl overflow-hidden border border-zinc-200" style={{ height: 400 }}>
-        {/* 카카오맵이 채울 div */}
+      {/* 지도 컨테이너 */}
+      <div className="relative w-full rounded-2xl overflow-hidden border border-zinc-200" style={{ height: 440 }}>
         <div ref={containerRef} className="w-full h-full" />
 
-        {/* 로딩 상태 */}
-        {(status === "idle" || status === "loading") && (
+        {(status === "idle" || status === "loading" || zones.length === 0) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-50">
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-2" />
             <p className="text-xs text-zinc-400">지도 불러오는 중...</p>
           </div>
         )}
 
-        {/* 에러 상태 */}
         {status === "error" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-50 p-6 text-center">
             <p className="text-sm font-semibold text-red-600 mb-1">지도 로드 실패</p>
             <p className="text-xs text-zinc-500 mb-4">{errorMsg}</p>
-            <div className="text-xs text-zinc-500 bg-white border border-zinc-200 rounded-xl p-4 text-left max-w-sm w-full space-y-2">
+            <div className="text-xs text-zinc-500 bg-white border border-zinc-200 rounded-xl p-4 text-left max-w-sm w-full space-y-1.5">
               <p className="font-bold text-zinc-700 mb-2">카카오 콘솔 설정 확인</p>
-              <p><span className="font-semibold">1.</span> developers.kakao.com 로그인</p>
-              <p><span className="font-semibold">2.</span> 내 애플리케이션 → 앱 선택</p>
-              <p><span className="font-semibold">3.</span> 앱 설정 → 플랫폼 → Web → 사이트 도메인</p>
-              <p className="pl-3 text-zinc-400">→ <code className="bg-zinc-100 px-1 rounded">https://revo-invest.com</code> 추가</p>
-              <p><span className="font-semibold">4.</span> 카카오맵 API 활성화 확인</p>
-              <p className="pl-3 text-zinc-400">→ 앱 → 카카오 서비스 → <span className="font-medium text-zinc-600">카카오맵</span> ON</p>
-              <p><span className="font-semibold">5.</span> JavaScript 앱 키 사용 여부 확인</p>
-              <p className="pl-3 text-zinc-400">→ 앱 키 탭에서 <span className="font-medium text-zinc-600">JavaScript 키</span> 복사</p>
+              <p><span className="font-semibold">1.</span> developers.kakao.com → 앱 → 플랫폼 키</p>
+              <p><span className="font-semibold">2.</span> JavaScript 키 → 더보기 → JavaScript SDK 도메인</p>
+              <p className="pl-3 text-zinc-400">→ <code className="bg-zinc-100 px-1 rounded">https://revo-invest.com</code> 등록</p>
+              <p><span className="font-semibold">3.</span> 제품 설정 → 카카오맵 → 사용 설정 ON</p>
             </div>
           </div>
         )}
       </div>
+
+      <p className="text-xs text-zinc-400 text-right">
+        재건축 {zones.filter(z => z.project_type === "reconstruction").length}개 ·
+        재개발 {zones.filter(z => z.project_type === "redevelopment").length}개
+      </p>
     </div>
   );
 }

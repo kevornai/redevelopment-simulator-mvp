@@ -1,18 +1,16 @@
 /**
  * 관리자 전용 구역 일괄 임포트 API
  * POST /api/admin/import-zones
- *
- * body: { zones: ParsedRow[] }
- * 이미 존재하는 zone_id는 project_stage / project_type / lawd_cd만 업데이트
- * 신규 zone_id는 기본값으로 INSERT (계산 가능한 최소 구조)
+ * 신규: 카카오 REST API 지오코딩으로 대표지번 → lat/lng 자동 변환
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
+const KAKAO_REST_KEY = process.env.KAKAO_REST_API_KEY ?? "";
 
-// 신규 구역 INSERT 시 기본값 (서울 재개발 기준)
+// 신규 구역 INSERT 시 기본값
 const DEFAULT_ROW = {
   avg_appraisal_rate: 1.3,
   base_project_months: 72,
@@ -51,9 +49,29 @@ interface ZoneInput {
   zoneId: string;
   name: string;
   gu: string;
+  address: string;   // 대표지번
   projectType: string;
   projectStage: string;
   lawdCd: string;
+}
+
+/** 카카오 지오코딩: 주소 → lat/lng */
+async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
+  if (!KAKAO_REST_KEY || !address) return null;
+  try {
+    const url = `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent("서울 " + address)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const doc = json.documents?.[0];
+    if (!doc) return null;
+    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -73,13 +91,14 @@ export async function POST(req: NextRequest) {
 
   const supabase = await createClient();
 
-  // 기존 zone_id 조회
   const { data: existing } = await supabase
     .from("zones_data")
-    .select("zone_id")
+    .select("zone_id, lat, lng")
     .in("zone_id", zones.map((z) => z.zoneId));
 
-  const existingIds = new Set((existing ?? []).map((r: { zone_id: string }) => r.zone_id));
+  const existingMap = new Map(
+    (existing ?? []).map((r: { zone_id: string; lat: number | null; lng: number | null }) => [r.zone_id, r])
+  );
 
   let upserted = 0;
   let skipped = 0;
@@ -87,37 +106,53 @@ export async function POST(req: NextRequest) {
   for (const zone of zones) {
     if (!zone.zoneId) { skipped++; continue; }
 
-    if (existingIds.has(zone.zoneId)) {
-      // 기존: stage / type / lawd_cd만 업데이트
+    // 좌표 지오코딩 (기존에 없을 때만)
+    const ex = existingMap.get(zone.zoneId);
+    let coords: { lat: number; lng: number } | null = null;
+    if (!ex?.lat && zone.address) {
+      coords = await geocode(zone.address);
+    }
+
+    if (ex) {
+      // 기존 구역: stage / type / lawd_cd + 좌표(없으면) 업데이트
+      const patch: Record<string, unknown> = {
+        project_stage: zone.projectStage,
+        project_type: zone.projectType,
+        lawd_cd: zone.lawdCd || null,
+        zone_name: zone.name,
+        updated_at: new Date().toISOString(),
+      };
+      if (coords) { patch.lat = coords.lat; patch.lng = coords.lng; }
+
       const { error } = await supabase
         .from("zones_data")
-        .update({
-          project_stage: zone.projectStage,
-          project_type: zone.projectType,
-          lawd_cd: zone.lawdCd || null,
-          updated_at: new Date().toISOString(),
-        })
+        .update(patch)
         .eq("zone_id", zone.zoneId);
 
       if (!error) upserted++;
-      else skipped++;
+      else { console.error(zone.zoneId, error); skipped++; }
     } else {
-      // 신규: 기본값 + 입력값으로 INSERT
+      // 신규 INSERT
       const { error } = await supabase
         .from("zones_data")
         .insert({
           ...DEFAULT_ROW,
           zone_id: zone.zoneId,
+          zone_name: zone.name,
           project_type: zone.projectType,
           project_stage: zone.projectStage,
           lawd_cd: zone.lawdCd || null,
-          // 재건축이면 감정평가율 낮춤
           avg_appraisal_rate: zone.projectType === "reconstruction" ? 1.05 : 1.3,
+          lat: coords?.lat ?? null,
+          lng: coords?.lng ?? null,
         });
 
       if (!error) upserted++;
-      else { console.error(error); skipped++; }
+      else { console.error(zone.zoneId, error); skipped++; }
     }
+
+    // 지오코딩 rate limit 방지
+    if (coords) await new Promise((r) => setTimeout(r, 100));
   }
 
   return NextResponse.json({ upserted, skipped, total: zones.length });
