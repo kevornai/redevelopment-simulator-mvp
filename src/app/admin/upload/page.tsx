@@ -227,8 +227,18 @@ export default function AdminUploadPage() {
   const [status, setStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [resultMsg, setResultMsg] = useState("");
 
+  const [debugInfo, setDebugInfo] = useState<string>("");
+
   const parse = useCallback(() => {
     const lines = pasteText.trim().split("\n").filter(Boolean);
+
+    // 디버그: 첫 3줄 구조 출력
+    const firstLine = lines[0] ?? "";
+    const sep = firstLine.includes("\t") ? "탭" : firstLine.includes(",") ? "쉼표" : "알수없음";
+    const cols = firstLine.split(firstLine.includes("\t") ? "\t" : ",");
+    const dbg = `총 ${lines.length}줄 · 구분자: ${sep} · 첫줄 컬럼수: ${cols.length} · 첫셀: "${cols[0]?.trim()}"`;
+    setDebugInfo(dbg);
+
     const parsed = format === "seoul" ? parseSeoul(lines) : parseGyeonggi(lines);
     setRows(parsed);
     setStatus("idle");
@@ -322,6 +332,9 @@ export default function AdminUploadPage() {
           >
             파싱하기
           </button>
+          {debugInfo && (
+            <p className="text-xs font-mono bg-zinc-100 rounded-lg px-3 py-2 text-zinc-600">{debugInfo}</p>
+          )}
         </div>
 
         {/* 결과 테이블 */}
