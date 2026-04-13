@@ -53,13 +53,13 @@ function generateZoneId(name: string, region: string): string {
   return `${regionSlug}_${name.replace(/\s+/g, "").slice(0, 8)}`
     .toLowerCase().replace(/[^a-z0-9가-힣_]/g, "_");
 }
-function num(s: string): number | null {
+function num(s: string | undefined): number | null {
+  if (!s) return null;
   const n = parseFloat(s.replace(/,/g, "").trim());
   return isNaN(n) ? null : n;
 }
-function dateStr(s: string): string | null {
+function dateStr(s: string | undefined): string | null {
   if (!s || s.trim() === "-" || s.trim() === "") return null;
-  // YYYY.MM.DD / YYYY-MM / YYYY / YYYY.MM 등 → YYYYMM
   const m = s.match(/(\d{4})[.\-]?(\d{2})?/);
   if (!m) return null;
   return m[1] + (m[2] ?? "");
