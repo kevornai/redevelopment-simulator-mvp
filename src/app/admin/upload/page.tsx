@@ -148,67 +148,71 @@ function parseSeoul(lines: string[]): ParsedRow[] {
 }
 
 // ── 경기도 포맷 파서 ───────────────────────────────────────────
-// 컬럼 인덱스 (헤더 2행 병합 구조 → 실제 데이터 행 기준)
+// 확정 컬럼 인덱스 (CSV/탭 단일행 헤더 기준):
 // 0:연번 1:시군 2:사업단계 3:사업유형 4:정비구역명 5:위치 6:구역면적
-// 7:준공년도 8:동수 9:기존세대계 10~14:평형별
-// 15:사업시행합계 16:조합원 17:일반 18:임대
-// 19:신축분양계 20~24:평형별 25:신축임대계 26~29:임대평형별
-// 30:기존용적률 31:신축용적률 32:토지소유자수 33:조합원수
-// 34:사업시행자 35:예정시작 36:예정완료
-// 37:기본계획 38:구역지정예정 39:정비계획수립 40:구역지정최초 41:구역지정변경
-// 42:추진위승인 43:현지조사예정 44:현지조사실시 45:안전진단등급 46:적정성여부 47:적정성결과
+// 7:기존주택준공연도 8:기존주택동수 9:기존주택계 10:~40 11:40~60 12:60~85 13:85~135 14:135초과
+// 15:합계(사업시행세대) 16:조합원 17:일반 18:임대
+// 19:신축분양계 20:~40 21:40~60 22:60~85 23:85~135 24:135초과
+// 25:신축임대계 26:~40 27:40~60 28:60~85
+// 29:기존용적률 30:신축용적률 31:토지등소유자 32:조합원수
+// 33:시행자 34:사업시작 35:사업완료
+// 36:기본계획수립 37:정비구역지정예정 38:정비계획수립 39:정비구역최초지정 40:정비구역변경지정
+// 41:추진위승인 42:현지조사예비평가 43:안전진단예정연도 44:안전진단실시일 45:안전진단등급
+// 46:적정성검토실시여부 47:적정성검토실시결과
 // 48:조합설립인가 49:사업시행인가 50:관리처분인가
-// 51:착공일 52:일반분양일 53:준공일 54:이전고시 55:해산 56:청산
-// 57:주거환경시행방법 58:국비지원 59:담당자
+// 51:착공 52:일반분양 53:준공 54:이전고시 55:해산일 56:청산일
+// 57:주거환경개선시행방법 58:국비지원
 function parseGyeonggi(lines: string[]): ParsedRow[] {
   return lines.flatMap((line) => {
-    const c = line.split("\t");
+    // CSV(쉼표) 또는 TSV(탭) 자동 감지
+    const sep = line.includes("\t") ? "\t" : ",";
+    const c = line.split(sep).map(s => s.replace(/^"|"$/g, "").trim());
     if (c.length < 10) return [];
-    // 헤더/빈행 스킵
-    if (!c[0].trim().match(/^\d+$/)) return [];
-    const region = c[1]?.trim() ?? "";
-    const name = c[4]?.trim() ?? "";
+    // 헤더행/빈행 스킵: 첫 셀이 숫자가 아니면 건너뜀
+    if (!c[0].match(/^\d+$/)) return [];
+    const region = c[1] ?? "";
+    const name   = c[4] ?? "";
     if (!name || !region) return [];
     return [{
       zoneId: generateZoneId(name, region),
       name, region,
-      address: (region + " " + (c[5]?.trim() ?? "")).trim(),
-      projectType: mapType(c[3]?.trim() ?? ""),
-      projectStage: mapStage(c[2]?.trim() ?? ""),
+      address: `${region} ${c[5] ?? ""}`.trim(),
+      projectType:  mapType(c[3] ?? ""),
+      projectStage: mapStage(c[2] ?? ""),
       lawdCd: getLawdCd(region),
       selected: true,
-      zone_area_sqm: num(c[6] ?? ""),
-      existing_building_year: num(c[7] ?? "") ? Math.round(num(c[7] ?? "")!) : null,
-      existing_units_total: num(c[9] ?? ""),
-      planned_units_total: num(c[15] ?? ""),
-      planned_units_member: num(c[16] ?? ""),
-      planned_units_general: num(c[17] ?? ""),
-      planned_units_rent: num(c[18] ?? ""),
-      new_units_sale_total: num(c[19] ?? ""),
-      new_units_sale_u40: num(c[20] ?? ""),
-      new_units_sale_40_60: num(c[21] ?? ""),
-      new_units_sale_60_85: num(c[22] ?? ""),
-      new_units_sale_85_135: num(c[23] ?? ""),
-      new_units_sale_o135: num(c[24] ?? ""),
-      new_units_rent_total: num(c[25] ?? ""),
-      floor_area_ratio_existing: num(c[30] ?? ""),
-      floor_area_ratio_new: num(c[31] ?? ""),
-      land_owners_count: num(c[32] ?? ""),
-      association_members_count: num(c[33] ?? ""),
-      project_operator: c[34]?.trim() || null,
-      project_period_start: c[35]?.trim() || null,
-      project_period_end: c[36]?.trim() || null,
-      basic_plan_date: dateStr(c[37] ?? ""),
-      zone_designation_date: dateStr(c[40] ?? ""),
-      zone_designation_change_date: dateStr(c[41] ?? ""),
-      promotion_committee_date: dateStr(c[42] ?? ""),
-      safety_inspection_grade: c[45]?.trim() || null,
-      association_approval_date: dateStr(c[48] ?? ""),
-      project_implementation_date: dateStr(c[49] ?? ""),
-      management_disposal_date: dateStr(c[50] ?? ""),
-      construction_start_date: dateStr(c[51] ?? ""),
-      general_sale_date: dateStr(c[52] ?? ""),
-      completion_date: dateStr(c[53] ?? ""),
+      zone_area_sqm:           num(c[6]),
+      existing_building_year:  num(c[7]) ? Math.round(num(c[7])!) : null,
+      existing_units_total:    num(c[9]),
+      planned_units_total:     num(c[15]),
+      planned_units_member:    num(c[16]),
+      planned_units_general:   num(c[17]),
+      planned_units_rent:      num(c[18]),
+      new_units_sale_total:    num(c[19]),
+      new_units_sale_u40:      num(c[20]),
+      new_units_sale_40_60:    num(c[21]),
+      new_units_sale_60_85:    num(c[22]),
+      new_units_sale_85_135:   num(c[23]),
+      new_units_sale_o135:     num(c[24]),
+      new_units_rent_total:    num(c[25]),
+      floor_area_ratio_existing: num(c[29]),
+      floor_area_ratio_new:      num(c[30]),
+      land_owners_count:         num(c[31]),
+      association_members_count: num(c[32]),
+      project_operator:          c[33] || null,
+      project_period_start:      c[34] || null,
+      project_period_end:        c[35] || null,
+      basic_plan_date:                dateStr(c[36]),
+      zone_designation_date:          dateStr(c[39]),
+      zone_designation_change_date:   dateStr(c[40]),
+      promotion_committee_date:       dateStr(c[41]),
+      safety_inspection_grade:        c[45] || null,
+      association_approval_date:      dateStr(c[48]),
+      project_implementation_date:    dateStr(c[49]),
+      management_disposal_date:       dateStr(c[50]),
+      construction_start_date:        dateStr(c[51]),
+      general_sale_date:              dateStr(c[52]),
+      completion_date:                dateStr(c[53]),
     }];
   });
 }
@@ -295,9 +299,9 @@ export default function AdminUploadPage() {
             </>
           ) : (
             <>
-              <p className="font-semibold">경기도 정비사업 현황 엑셀 포맷</p>
-              <p>컬럼 순서: 연번 · 시군 · 사업단계 · 사업유형 · 정비구역명 · 위치 · 구역면적 · 준공년도 · 동수 · 기존세대수 · ... · 착공일 · 분양일 · 준공일</p>
-              <p className="text-blue-500">헤더 2행 제외하고 데이터 행만 복사해주세요.</p>
+              <p className="font-semibold">경기도 정비사업 현황 엑셀 / CSV 포맷</p>
+              <p>컬럼: 연번·시군·사업단계·사업유형·정비구역명·위치·구역면적·준공연도·동수·기존세대계·(평형별)·합계·조합원·일반·임대·신축분양계·(평형별)·신축임대계·용적률·토지소유자·조합원수·시행자·사업기간·(인허가일)·착공·분양·준공</p>
+              <p className="text-blue-500">CSV 또는 탭 구분 모두 OK · 헤더행은 자동 스킵됨</p>
             </>
           )}
         </div>
