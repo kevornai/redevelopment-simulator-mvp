@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   calculateAnalysis,
   CalculationInput,
@@ -198,7 +198,21 @@ function ScenarioCard({ r }: { r: ScenarioResult }) {
 
             {/* 감정평가 & 프리미엄 */}
             <Section title="감정평가 & 프리미엄">
-              <Row label="예상 감정평가액" value={fWon(r.estimatedAppraisalValue)} />
+              <Row
+                label={
+                  <span className="flex items-center gap-1.5">
+                    예상 감정평가액
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                      r.appraisalMethod === "land_based"
+                        ? "bg-blue-100 text-blue-700"
+                        : "bg-zinc-100 text-zinc-500"
+                    }`}>
+                      {r.appraisalMethod === "land_based" ? "대지지분 기반" : "공시가 기반"}
+                    </span>
+                  </span>
+                }
+                value={fWon(r.estimatedAppraisalValue)}
+              />
               <Row label="권리가액" value={fWon(r.rightsValue)} />
               <Row label="프리미엄 (웃돈)" value={fWon(r.estimatedPremium)} />
               <Row label="프리미엄 버블지수" value={fPct(r.premiumBubbleIndex)} color={r.premiumBubbleIndex > 50 ? "text-red-600" : "text-zinc-700"} />
@@ -249,7 +263,7 @@ function ScenarioCard({ r }: { r: ScenarioResult }) {
 function Row({
   label, value, highlight, color, indent,
 }: {
-  label: string; value: string; highlight?: boolean; color?: string; indent?: boolean;
+  label: React.ReactNode; value: string; highlight?: boolean; color?: string; indent?: boolean;
 }) {
   return (
     <div className={`flex justify-between ${highlight ? "font-semibold" : ""} ${indent ? "pl-3" : ""}`}>
@@ -333,14 +347,15 @@ const RECONSTRUCTION_ZONES = new Set(["banpo", "gaepo", "gaepo4", "dunchon", "ch
 
 export default function ReportTestClient() {
   const [form, setForm] = useState<CalculationInput>({
-    zoneId: "hannam3",
-    projectType: "redevelopment",
-    propertyType: "villa",
-    purchasePrice: 1200000000,
-    purchaseLoanAmount: 600000000,   // 대출 6억
-    currentDeposit: 300000000,
+    zoneId: "banpo",
+    projectType: "reconstruction",
+    propertyType: "apartment",
+    purchasePrice: 4500000000,       // 매수가 45억 (반포주공 기준)
+    purchaseLoanAmount: 2000000000,  // 대출 20억
+    currentDeposit: 0,
     desiredPyung: 59,
-    officialValuation: 500000000,
+    officialValuation: 2800000000,   // 공시가 28억 (예시)
+    landShareSqm: 16,                // 대지지분 16㎡ (등기부등본 기준)
   });
 
   const [result, setResult] = useState<CalculationResult | null>(null);
@@ -378,9 +393,12 @@ export default function ReportTestClient() {
       {/* 헤더 */}
       <div>
         <span className="text-xs font-semibold text-amber-600 uppercase tracking-widest">내부 테스트 전용</span>
-        <h1 className="text-3xl font-bold text-zinc-900 mt-1">재개발·재건축 계산 엔진</h1>
+        <h1 className="text-3xl font-bold text-zinc-900 mt-1">재건축 아파트 계산 엔진</h1>
         <p className="text-zinc-400 text-sm mt-1">
           비례율 · 권리가액 · 분담금 · IRR · NPV · 단계별 현금흐름 · 기회비용 분석
+        </p>
+        <p className="text-xs text-zinc-400 mt-1">
+          재개발(빌라) 분석은 준비 중입니다. 현재는 재건축 아파트만 지원합니다.
         </p>
       </div>
 
@@ -406,29 +424,24 @@ export default function ReportTestClient() {
               onChange={(e) => handleZoneChange(e.target.value)}
               className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <optgroup label="── 재개발 (강북권)">
-                {["hannam3","hannam2","hannam4","hannam5","noryangjin1","noryangjin2","noryangjin3","noryangjin5","heukseok2","heukseok3","singil1","singil4","singil5","singil6","dapsimni","wangsimni","majang","seongsu"].map(id => (
-                  <option key={id} value={id}>{zones[id]}</option>
-                ))}
-              </optgroup>
-              <optgroup label="── 재건축 (강남권)">
+              <optgroup label="✅ 재건축 아파트 (서울 강남권)">
                 {["banpo","gaepo","gaepo4","dunchon","chamsil","seocho","heukseok9"].map(id => (
                   <option key={id} value={id}>{zones[id]}</option>
                 ))}
               </optgroup>
-              <optgroup label="── 재개발 (서북권)">
-                {["ahyeon","mapo","gajwa","yeonninnae"].map(id => (
-                  <option key={id} value={id}>{zones[id] ?? id}</option>
-                ))}
-              </optgroup>
-              <optgroup label="── 재건축 (경기도)">
+              <optgroup label="✅ 재건축 아파트 (경기도)">
                 {["gwacheon","gwacheon1","gwacheon2"].map(id => (
                   <option key={id} value={id}>{zones[id]}</option>
                 ))}
               </optgroup>
+              <optgroup label="🔒 재개발 빌라 (준비중)">
+                {["hannam3","hannam2","hannam4","hannam5","noryangjin1","noryangjin2","noryangjin3","noryangjin5","heukseok2","heukseok3","singil1","singil4","singil5","singil6","dapsimni","wangsimni","majang","seongsu","ahyeon","mapo","gajwa","yeonsinnae"].map(id => (
+                  <option key={id} value={id} disabled>{zones[id] ?? id} (준비중)</option>
+                ))}
+              </optgroup>
             </select>
             <p className="text-xs text-zinc-400">
-              현재 DB 데이터: 한남3구역(재개발), 반포주공1단지(재건축) 지원
+              현재 DB 데이터: 반포주공1단지(재건축) — 나머지 구역은 관리자 입력 후 활성화
             </p>
           </div>
 
@@ -450,11 +463,31 @@ export default function ReportTestClient() {
             </select>
           </div>
 
-          <NumberInput label="매수 희망가 (원)" value={form.purchasePrice} onChange={(v) => set("purchasePrice", v)} placeholder="예: 1200000000 (12억)" />
-          <NumberInput label="매수 시 대출금 (원)" value={form.purchaseLoanAmount} onChange={(v) => set("purchaseLoanAmount", v)} placeholder="예: 600000000 (6억)" note="보유기간 이자 계산에 사용" />
-          <NumberInput label="현재 전/월세 보증금 (원)" value={form.currentDeposit} onChange={(v) => set("currentDeposit", v)} placeholder="예: 300000000 (3억)" />
+          <NumberInput label="매수 희망가 (원)" value={form.purchasePrice} onChange={(v) => set("purchasePrice", v)} placeholder="예: 4500000000 (45억)" />
+          <NumberInput label="매수 시 대출금 (원)" value={form.purchaseLoanAmount} onChange={(v) => set("purchaseLoanAmount", v)} placeholder="예: 2000000000 (20억)" note="보유기간 이자 계산에 사용" />
+          <NumberInput label="현재 전/월세 보증금 (원)" value={form.currentDeposit} onChange={(v) => set("currentDeposit", v)} placeholder="예: 0 (거주 중이면 0)" />
           <NumberInput label="희망 조합원 분양 평형 (평)" value={form.desiredPyung} onChange={(v) => set("desiredPyung", v)} placeholder="예: 59, 84" />
-          <NumberInput label="공동주택 공시가격 (원)" value={form.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="예: 500000000 (5억)" note="국토부 부동산 공시가격 알리미 조회" />
+          <NumberInput label="공동주택 공시가격 (원)" value={form.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="예: 2800000000 (28억)" note="국토부 부동산 공시가격 알리미 조회" />
+
+          {/* 재건축 전용: 대지지분 */}
+          {form.projectType === "reconstruction" && (
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-medium text-zinc-700">
+                대지지분 (㎡)
+                <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">재건축 핵심 지표</span>
+              </label>
+              <input
+                type="number"
+                value={form.landShareSqm || ""}
+                onChange={(e) => set("landShareSqm", parseFloat(e.target.value) || 0)}
+                placeholder="예: 16 (등기부등본 표제부 확인)"
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-zinc-400">
+                등기부등본 → 표제부 → 「대지권의 표시」에서 확인 (단위: ㎡)
+              </p>
+            </div>
+          )}
         </div>
 
         {/* 실투자금 미리보기 */}

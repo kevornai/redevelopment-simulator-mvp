@@ -17,6 +17,7 @@ export interface CalculationInput {
   currentDeposit: number;     // 현재 전/월세 보증금 (원)
   desiredPyung: number;       // 희망 조합원 분양 평형 (평)
   officialValuation: number;  // 공동주택 공시가격 (원)
+  landShareSqm: number;       // 대지지분 (㎡) — 등기부등본 확인, 재건축 전용
 }
 
 /** 사업 단계별 현금흐름 스냅샷 */
@@ -48,6 +49,7 @@ export interface ScenarioResult {
 
   // ── 감정평가 & 비례율 ──
   estimatedAppraisalValue: number;  // 예상 감정평가액
+  appraisalMethod: "land_based" | "official_rate"; // 감정평가 계산 방식
   proportionalRate: number;         // 비례율 (%)
   rightsValue: number;              // 권리가액
 
@@ -147,7 +149,8 @@ interface ZoneData {
   target_yield_rate: number;
   contribution_at_construction: number;
   existing_apt_pyung: number | null;
-  lawd_cd: string | null;  // 법정동코드 (5자리 시군구)
+  lawd_cd: string | null;             // 법정동코드 (5자리 시군구)
+  land_official_price_per_sqm: number | null; // 개별공시지가 (원/㎡) — 관리자 입력
 }
 
 /**
@@ -362,8 +365,28 @@ function computeScenario(
   // Step 8~11: 개인 물건 분석
   // ─────────────────────────────────────────────────────────────────────────
 
-  // 재건축 아파트는 감정평가율이 시세에 가깝게 적용됨
-  const estimatedAppraisalValue = officialValuation * z.avg_appraisal_rate;
+  // 감정평가액 계산:
+  //   [대지지분 기반 — 재건축 정밀 계산]
+  //   대지지분(㎡) × 개별공시지가(원/㎡)가 모두 있을 때 사용
+  //
+  //   토지 감정평가액 = 대지지분 × 공시지가 ÷ 토지현실화율(0.65) × 0.90 (보수 감정배율)
+  //   건물 감정평가액 = max(0, 공시가격 - 토지 공시가격) ÷ 공동주택현실화율(0.69) × 0.80
+  //   → 재건축 대상 구축 아파트는 건물이 감가상각 거의 완료 → 토지가 감정평가 대부분 차지
+  //
+  //   [공시가격 기반 — fallback]
+  //   대지지분 정보 없을 때: officialValuation × avg_appraisal_rate
+  const { landShareSqm } = input;
+  let estimatedAppraisalValue: number;
+
+  if (landShareSqm > 0 && z.land_official_price_per_sqm && z.land_official_price_per_sqm > 0) {
+    const landPublicValue   = landShareSqm * z.land_official_price_per_sqm;
+    const landAppraisal     = landPublicValue / 0.65 * 0.90;
+    const buildingPublic    = Math.max(0, officialValuation - landPublicValue);
+    const buildingAppraisal = buildingPublic / 0.69 * 0.80;
+    estimatedAppraisalValue = landAppraisal + buildingAppraisal;
+  } else {
+    estimatedAppraisalValue = officialValuation * z.avg_appraisal_rate;
+  }
   const rightsValue             = estimatedAppraisalValue * (proportionalRate / 100);
   const estimatedPremium        = purchasePrice - estimatedAppraisalValue;
   const premiumBubbleIndex      =
@@ -517,6 +540,7 @@ function computeScenario(
     constructionCostGrowthRate: Math.round(appliedMonthlyRate * 10000) / 100, // 소수점 2자리 %
     appliedGeneralSalePrice: Math.round(P),
     estimatedAppraisalValue: Math.round(estimatedAppraisalValue),
+    appraisalMethod: (landShareSqm > 0 && z.land_official_price_per_sqm ? "land_based" : "official_rate") as "land_based" | "official_rate",
     proportionalRate: Math.round(proportionalRate * 10) / 10,
     rightsValue: Math.round(rightsValue),
     estimatedPremium: Math.round(estimatedPremium),
