@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
+import dynamic from "next/dynamic";
 import {
   calculateAnalysis,
   CalculationInput,
@@ -9,6 +10,10 @@ import {
   StageCashFlow,
 } from "@/app/actions/calculate";
 import { zones } from "@/data/zones";
+import type { ZoneMapMeta } from "@/components/map/zone-coords";
+
+// 카카오 지도 SDK는 브라우저 전용 → SSR 비활성화
+const ZoneMap = dynamic(() => import("@/components/map/ZoneMap"), { ssr: false });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 포맷 유틸
@@ -410,6 +415,26 @@ export default function ReportTestClient() {
     }));
   }
 
+  // 지도 핀 클릭 시: 구역 변경 + 등록된 기본값 자동 채움
+  const handleMapSelect = useCallback(
+    (zoneId: string, defaults?: ZoneMapMeta["defaultValues"]) => {
+      const isRecon = RECONSTRUCTION_ZONES.has(zoneId);
+      setForm((prev) => ({
+        ...prev,
+        zoneId,
+        projectType: isRecon ? "reconstruction" : "redevelopment",
+        propertyType: isRecon ? "apartment" : "villa",
+        ...(defaults?.purchasePrice    && { purchasePrice:    defaults.purchasePrice }),
+        ...(defaults?.officialValuation && { officialValuation: defaults.officialValuation }),
+        ...(defaults?.landShareSqm     && { landShareSqm:     defaults.landShareSqm }),
+        ...(defaults?.desiredPyung     && { desiredPyung:     defaults.desiredPyung }),
+      }));
+      // 폼으로 스크롤
+      document.getElementById("analysis-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    [],
+  );
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -439,8 +464,34 @@ export default function ReportTestClient() {
         </p>
       </div>
 
+      {/* 구역 선택 지도 */}
+      <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6 flex flex-col gap-4">
+        <div>
+          <h2 className="font-bold text-zinc-900">관심 구역 선택</h2>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            파란색 핀을 클릭하면 해당 구역의 기본값이 아래 폼에 자동 입력됩니다.
+          </p>
+        </div>
+        <ZoneMap onSelect={handleMapSelect} selectedZoneId={form.zoneId} />
+        {form.zoneId && (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-zinc-400">선택된 구역:</span>
+            <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg">
+              {zones[form.zoneId] ?? form.zoneId}
+            </span>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${
+              form.projectType === "reconstruction"
+                ? "bg-blue-100 text-blue-600"
+                : "bg-green-100 text-green-600"
+            }`}>
+              {form.projectType === "reconstruction" ? "재건축" : "재개발"}
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* 입력 폼 */}
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 flex flex-col gap-6">
+      <form id="analysis-form" onSubmit={handleSubmit} className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-zinc-900">입력값</h2>
           <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
