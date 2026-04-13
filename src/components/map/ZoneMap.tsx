@@ -49,8 +49,8 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
     setStatus("loading");
 
     const script = document.createElement("script");
-    // async 제거 — Kakao Maps SDK는 sync 로드가 더 안정적
-    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${apiKey}&autoload=false`;
+    // 명시적 https:// — 프로토콜 상대 URL(//...)은 localhost(http)에서 실패할 수 있음
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${apiKey}&autoload=false`;
 
     script.addEventListener("load", () => {
       setStatus("ready");
@@ -58,7 +58,7 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
 
     script.addEventListener("error", () => {
       setStatus("error");
-      setErrorMsg("Kakao Maps 스크립트 로드 실패. API 키를 확인하세요.");
+      setErrorMsg("스크립트 로드 실패 — API 키 또는 활성화 상태를 확인하세요.");
     });
 
     document.head.appendChild(script);
@@ -174,12 +174,17 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
         {status === "error" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-50 p-6 text-center">
             <p className="text-sm font-semibold text-red-600 mb-1">지도 로드 실패</p>
-            <p className="text-xs text-zinc-500 mb-3">{errorMsg}</p>
-            <div className="text-xs text-zinc-400 bg-zinc-100 rounded-lg p-3 text-left max-w-sm">
-              <p className="font-semibold mb-1">체크리스트:</p>
-              <p>1. developers.kakao.com → 앱 → 플랫폼 → Web</p>
-              <p>2. 사이트 도메인에 <code>http://localhost:3000</code> 추가</p>
-              <p>3. dev 서버 재시작 후 새로고침</p>
+            <p className="text-xs text-zinc-500 mb-4">{errorMsg}</p>
+            <div className="text-xs text-zinc-500 bg-white border border-zinc-200 rounded-xl p-4 text-left max-w-sm w-full space-y-2">
+              <p className="font-bold text-zinc-700 mb-2">카카오 콘솔 설정 확인</p>
+              <p><span className="font-semibold">1.</span> developers.kakao.com 로그인</p>
+              <p><span className="font-semibold">2.</span> 내 애플리케이션 → 앱 선택</p>
+              <p><span className="font-semibold">3.</span> 앱 설정 → 플랫폼 → Web → 사이트 도메인</p>
+              <p className="pl-3 text-zinc-400">→ <code className="bg-zinc-100 px-1 rounded">https://revo-invest.com</code> 추가</p>
+              <p><span className="font-semibold">4.</span> 카카오맵 API 활성화 확인</p>
+              <p className="pl-3 text-zinc-400">→ 앱 → 카카오 서비스 → <span className="font-medium text-zinc-600">카카오맵</span> ON</p>
+              <p><span className="font-semibold">5.</span> JavaScript 앱 키 사용 여부 확인</p>
+              <p className="pl-3 text-zinc-400">→ 앱 키 탭에서 <span className="font-medium text-zinc-600">JavaScript 키</span> 복사</p>
             </div>
           </div>
         )}
