@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchMarketData } from "@/lib/market-data";
 import type { MarketData } from "@/lib/market-data";
+import { deriveMonthsToConstruction, deriveMemberSalePrice } from "@/lib/derive-zone-params";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 타입 정의
@@ -39,6 +40,7 @@ export interface ScenarioResult {
   appliedMonths: number;
   monthsToConstructionStart: number;
   constructionPeriodMonths: number;
+  monthsToConstructionSource: "announced" | "statistical" | "db_override";
 
   // ── 공사비 ──
   appliedConstructionCostPerPyung: number; // 최종 적용 평당 공사비
@@ -46,6 +48,7 @@ export interface ScenarioResult {
 
   // ── 분양가 ──
   appliedGeneralSalePrice: number; // 적용 평당 일반분양가
+  memberSalePriceSource: "announced" | "manual" | "cost_estimated";
 
   // ── 감정평가 & 비례율 ──
   estimatedAppraisalValue: number;  // 예상 감정평가액
@@ -151,6 +154,8 @@ interface ZoneData {
   existing_apt_pyung: number | null;
   lawd_cd: string | null;             // 법정동코드 (5자리 시군구)
   land_official_price_per_sqm: number | null; // 개별공시지가 (원/㎡) — 관리자 입력
+  construction_start_announced_ym: string | null; // 착공예정월 (YYYYMM) — 공표 시 입력
+  member_sale_price_source: "cost_estimated" | "announced" | "manual";
 }
 
 /**
@@ -193,6 +198,23 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     ? market.publicPrice.estimatedAppraisalRate
     : z.avg_appraisal_rate;
 
+  // ── 착공까지 기간: 공표월 → 오늘 기준 계산, 없으면 단계별 통계 추정
+  const monthsDerived = deriveMonthsToConstruction(
+    z.project_stage,
+    z.construction_start_announced_ym,
+  );
+  const months_to_construction_start = monthsDerived.value;
+  const months_to_construction_source = monthsDerived.source; // "announced" | "statistical"
+
+  // ── 조합원 분양가: 공표/수동 입력값 있으면 그대로, 없으면 p_base × 0.78 추정
+  const memberSaleDerived = deriveMemberSalePrice(
+    z.member_sale_price_per_pyung,
+    z.member_sale_price_source,
+    z.p_base,
+  );
+  const member_sale_price_per_pyung = memberSaleDerived.value;
+  const member_sale_price_source = memberSaleDerived.source;
+
   return {
     ...z,
     annual_pf_rate,
@@ -204,6 +226,12 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     mdd_local,
     neighbor_new_apt_price,
     avg_appraisal_rate,
+    months_to_construction_start,
+    member_sale_price_per_pyung,
+    _derivedSources: {
+      monthsToConstruction: months_to_construction_source,
+      memberSalePrice: member_sale_price_source,
+    },
   };
 }
 
@@ -238,7 +266,7 @@ export async function calculateAnalysis(
   });
 
   // API 데이터로 Zone 상수 오버라이드
-  const resolvedZ = resolveZoneParams(z, marketData, input.desiredPyung);
+  const resolvedZ = resolveZoneParams(z, marketData, input.desiredPyung) as ResolvedZoneData;
 
   const optimistic  = computeScenario("optimistic", input, resolvedZ);
   const neutral     = computeScenario("neutral", input, resolvedZ);
@@ -271,10 +299,17 @@ export async function calculateAnalysis(
 // 시나리오 계산 핵심 로직
 // ═══════════════════════════════════════════════════════════════════════════════
 
+type ResolvedZoneData = ZoneData & {
+  _derivedSources: {
+    monthsToConstruction: "announced" | "statistical";
+    memberSalePrice: "announced" | "manual" | "cost_estimated";
+  };
+};
+
 function computeScenario(
   type: "optimistic" | "neutral" | "pessimistic",
   input: CalculationInput,
-  z: ZoneData
+  z: ResolvedZoneData
 ): ScenarioResult {
   const { purchasePrice, purchaseLoanAmount, currentDeposit, desiredPyung, officialValuation } = input;
 
@@ -536,9 +571,11 @@ function computeScenario(
     appliedMonths: Math.round(T),
     monthsToConstructionStart: Math.round(monthsToStart),
     constructionPeriodMonths: Math.round(constructionPeriodMonths),
+    monthsToConstructionSource: (type === "neutral" ? z._derivedSources.monthsToConstruction : "db_override") as "announced" | "statistical" | "db_override",
     appliedConstructionCostPerPyung: Math.round(C_T),
     constructionCostGrowthRate: Math.round(appliedMonthlyRate * 10000) / 100, // 소수점 2자리 %
     appliedGeneralSalePrice: Math.round(P),
+    memberSalePriceSource: z._derivedSources.memberSalePrice,
     estimatedAppraisalValue: Math.round(estimatedAppraisalValue),
     appraisalMethod: (landShareSqm > 0 && z.land_official_price_per_sqm ? "land_based" : "official_rate") as "land_based" | "official_rate",
     proportionalRate: Math.round(proportionalRate * 10) / 10,

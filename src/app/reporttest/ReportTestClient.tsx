@@ -127,7 +127,7 @@ function CashFlowTimeline({ flows }: { flows: StageCashFlow[] }) {
 // 시나리오 카드
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ScenarioCard({ r }: { r: ScenarioResult }) {
+function ScenarioCard({ r, desiredPyung }: { r: ScenarioResult; desiredPyung: number }) {
   const [expanded, setExpanded] = useState(false);
   const st = S[r.scenarioType];
   const isProfit = r.netProfit >= 0;
@@ -223,6 +223,15 @@ function ScenarioCard({ r }: { r: ScenarioResult }) {
             <Section title="공사비 & 분양가 (적용값)">
               <Row label="평당 공사비" value={`${fWon(r.appliedConstructionCostPerPyung, true)}/평`} />
               <Row label="월 인상률 적용값" value={`${r.constructionCostGrowthRate}%`} />
+              <Row
+                label={
+                  <span className="flex items-center gap-1.5">
+                    평당 조합원 분양가
+                    <SourceBadge source={r.memberSalePriceSource} />
+                  </span>
+                }
+                value={`${fWon(r.targetMemberSalePrice / desiredPyung, true)}/평`}
+              />
               <Row label="평당 일반분양가" value={`${fWon(r.appliedGeneralSalePrice, true)}/평`} />
             </Section>
 
@@ -246,7 +255,17 @@ function ScenarioCard({ r }: { r: ScenarioResult }) {
             <Section title="리스크 & 손익분기">
               <Row label="손익분기 분양가" value={`${fWon(r.breakEvenGeneralSalePrice, true)}/평`} />
               <Row label="최대 감당 분담금" value={fWon(r.maxAffordableContribution)} />
-              <Row label="사업 기간" value={`${fMonth(r.appliedMonths)} (착공까지 ${fMonth(r.monthsToConstructionStart)})`} />
+              <Row
+                label={
+                  <span className="flex items-center gap-1.5">
+                    사업 기간
+                    {r.scenarioType === "neutral" && (
+                      <SourceBadge source={r.monthsToConstructionSource} />
+                    )}
+                  </span>
+                }
+                value={`${fMonth(r.appliedMonths)} (착공까지 ${fMonth(r.monthsToConstructionStart)})`}
+              />
             </Section>
 
             {/* 단계별 현금흐름 */}
@@ -270,6 +289,24 @@ function Row({
       <span className={`${indent ? "text-zinc-400" : "text-zinc-500"} text-sm`}>{label}</span>
       <span className={`text-sm ${color ?? "text-zinc-800"}`}>{value}</span>
     </div>
+  );
+}
+
+/** 데이터 출처 배지 — 어떤 값이 공표값/추정값/수동입력인지 표시 */
+const SOURCE_BADGE_CONFIG = {
+  announced:      { label: "공표값",   cls: "bg-green-100 text-green-700" },
+  manual:         { label: "수동입력", cls: "bg-blue-100 text-blue-700"  },
+  cost_estimated: { label: "추정값",   cls: "bg-yellow-100 text-yellow-700" },
+  statistical:    { label: "통계추정", cls: "bg-zinc-100 text-zinc-500"  },
+  db_override:    { label: "시나리오", cls: "bg-zinc-100 text-zinc-500"  },
+} as const;
+
+function SourceBadge({ source }: { source: keyof typeof SOURCE_BADGE_CONFIG }) {
+  const cfg = SOURCE_BADGE_CONFIG[source] ?? SOURCE_BADGE_CONFIG.manual;
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${cfg.cls}`}>
+      {cfg.label}
+    </span>
   );
 }
 
@@ -579,9 +616,9 @@ export default function ReportTestClient() {
 
           {activeTab === "cards" && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-              <ScenarioCard r={result.optimistic} />
-              <ScenarioCard r={result.neutral} />
-              <ScenarioCard r={result.pessimistic} />
+              <ScenarioCard r={result.optimistic} desiredPyung={result.input.desiredPyung} />
+              <ScenarioCard r={result.neutral} desiredPyung={result.input.desiredPyung} />
+              <ScenarioCard r={result.pessimistic} desiredPyung={result.input.desiredPyung} />
             </div>
           )}
 
