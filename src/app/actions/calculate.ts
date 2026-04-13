@@ -1,6 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { fetchMarketData } from "@/lib/market-data";
+import type { MarketData } from "@/lib/market-data";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 타입 정의
@@ -99,6 +101,13 @@ export interface CalculationResult {
   optimistic: ScenarioResult;
   neutral: ScenarioResult;
   pessimistic: ScenarioResult;
+  marketDataSources: {
+    ratesFromApi: boolean;
+    constructionCostFromApi: boolean;
+    localPriceFromApi: boolean;
+    publicPriceFromApi: boolean;
+    fetchedAt: string;
+  };
   calculatedAt: string;
 }
 
@@ -138,6 +147,61 @@ interface ZoneData {
   target_yield_rate: number;
   contribution_at_construction: number;
   existing_apt_pyung: number | null;
+  lawd_cd: string | null;  // 법정동코드 (5자리 시군구)
+}
+
+/**
+ * API 데이터로 Zone 상수를 오버라이드한 유효 파라미터 세트
+ * DB 값이 fallback, 실시간 API 값이 우선
+ */
+function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number) {
+  // 금리: ECOS API 우선 (단위: % → 소수 변환)
+  const annual_pf_rate = market.rates.fromApi
+    ? market.rates.pfRate / 100
+    : z.annual_pf_rate;
+  const annual_holding_rate = market.rates.fromApi
+    ? market.rates.mortgageRate / 100
+    : z.annual_holding_rate;
+  const target_yield_rate = market.rates.fromApi
+    ? market.rates.targetYield / 100
+    : z.target_yield_rate;
+
+  // 공사비 인상률: KOSIS API 우선
+  const r_recent = market.constructionCost.fromApi
+    ? market.constructionCost.rRecent
+    : z.r_recent;
+  const r_long = market.constructionCost.fromApi
+    ? market.constructionCost.rLong
+    : z.r_long;
+
+  // 실거래가: MOLIT API 우선
+  const peak_local = (market.localPrice?.fromApi && market.localPrice.peakPricePerPyung > 0)
+    ? market.localPrice.peakPricePerPyung * desiredPyung  // 평당가 × 희망평형 = 총액
+    : z.peak_local;
+  const mdd_local = (market.localPrice?.fromApi && market.localPrice.mddRate > 0)
+    ? market.localPrice.mddRate
+    : z.mdd_local;
+  const neighbor_new_apt_price = (market.localPrice?.fromApi && market.localPrice.estimatedCurrentPrice > 0)
+    ? market.localPrice.estimatedCurrentPrice
+    : z.neighbor_new_apt_price;
+
+  // 감정평가율: 공시가격 API 우선
+  const avg_appraisal_rate = (market.publicPrice?.fromApi && market.publicPrice.estimatedAppraisalRate > 0)
+    ? market.publicPrice.estimatedAppraisalRate
+    : z.avg_appraisal_rate;
+
+  return {
+    ...z,
+    annual_pf_rate,
+    annual_holding_rate,
+    target_yield_rate,
+    r_recent,
+    r_long,
+    peak_local,
+    mdd_local,
+    neighbor_new_apt_price,
+    avg_appraisal_rate,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -163,9 +227,19 @@ export async function calculateAnalysis(
   const { zones } = await import("@/data/zones");
   const zoneName = zones[input.zoneId] ?? input.zoneId;
 
-  const optimistic  = computeScenario("optimistic", input, z);
-  const neutral     = computeScenario("neutral", input, z);
-  const pessimistic = computeScenario("pessimistic", input, z);
+  // 실시간 시장 데이터 수집 (실패 시 자동 fallback)
+  const marketData = await fetchMarketData({
+    lawdCd: z.lawd_cd ?? undefined,
+    desiredPyung: input.desiredPyung,
+    officialPrice: input.officialValuation,
+  });
+
+  // API 데이터로 Zone 상수 오버라이드
+  const resolvedZ = resolveZoneParams(z, marketData, input.desiredPyung);
+
+  const optimistic  = computeScenario("optimistic", input, resolvedZ);
+  const neutral     = computeScenario("neutral", input, resolvedZ);
+  const pessimistic = computeScenario("pessimistic", input, resolvedZ);
 
   return {
     data: {
@@ -177,6 +251,13 @@ export async function calculateAnalysis(
       optimistic,
       neutral,
       pessimistic,
+      marketDataSources: {
+        ratesFromApi: marketData.rates.fromApi,
+        constructionCostFromApi: marketData.constructionCost.fromApi,
+        localPriceFromApi: marketData.localPrice?.fromApi ?? false,
+        publicPriceFromApi: marketData.publicPrice?.fromApi ?? false,
+        fetchedAt: marketData.fetchedAt,
+      },
       calculatedAt: new Date().toISOString(),
     },
     error: null,

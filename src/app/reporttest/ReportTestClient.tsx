@@ -504,6 +504,28 @@ export default function ReportTestClient() {
                 매수가 {fWon(result.input.purchasePrice, true)} ·{" "}
                 계산 {new Date(result.calculatedAt).toLocaleTimeString("ko-KR")}
               </p>
+              {/* API 데이터 소스 배지 */}
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {(
+                  [
+                    { label: "금리 (ECOS)", active: result.marketDataSources.ratesFromApi },
+                    { label: "공사비지수 (KOSIS)", active: result.marketDataSources.constructionCostFromApi },
+                    { label: "실거래가 (국토부)", active: result.marketDataSources.localPriceFromApi },
+                    { label: "공시가격 (NSDI)", active: result.marketDataSources.publicPriceFromApi },
+                  ] as const
+                ).map(({ label, active }) => (
+                  <span
+                    key={label}
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      active
+                        ? "bg-green-100 text-green-700"
+                        : "bg-zinc-100 text-zinc-400 line-through"
+                    }`}
+                  >
+                    {active ? "● " : "○ "}{label}
+                  </span>
+                ))}
+              </div>
             </div>
             <div className="flex gap-2">
               {(["cards", "table"] as const).map((tab) => (
