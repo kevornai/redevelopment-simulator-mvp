@@ -859,6 +859,12 @@ export default function ReportTestClient() {
                 매수가 {fWon(result.input.purchasePrice, true)} ·{" "}
                 계산 {new Date(result.calculatedAt).toLocaleTimeString("ko-KR")}
               </p>
+              {/* 실거래가 미확인 경고 */}
+              {!result.marketDataSources.localPriceFromApi && (
+                <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700 font-medium">
+                  ⚠️ 인근 실거래가를 가져오지 못했습니다. 아래 <strong>관리자 입력값 → 인근 신축 현재 시세</strong>를 직접 입력해야 수익 계산이 정확합니다.
+                </div>
+              )}
               {/* API 데이터 소스 배지 */}
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {(

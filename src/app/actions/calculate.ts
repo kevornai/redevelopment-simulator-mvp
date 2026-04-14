@@ -246,12 +246,12 @@ function estimateParamsForStage(
       }
     }
 
-    // 일반분양가(p_base) 추정: 실거래가 중위값 × 0.85 (분양가 할인율)
+    // 일반분양가(p_base) 추정: MOLIT 실거래가 기반만 사용
+    // neighbor_new_apt_price 역산은 placeholder 오염 위험 → 사용 안 함
     if (market.localPrice?.fromApi && market.localPrice.medianNewAptPricePerPyung > 0) {
       overrides.p_base = market.localPrice.medianNewAptPricePerPyung * 0.85;
-    } else if (z.neighbor_new_apt_price > 0 && input.desiredPyung > 0) {
-      overrides.p_base = (z.neighbor_new_apt_price / input.desiredPyung) * 0.85;
     }
+    // MOLIT 없으면 DB default 유지 (p_base는 구역별 수동 입력이 필요)
   }
 
   // ── C섹션: 관리처분인가 이전 ─────────────────────────────────────────────
@@ -276,11 +276,9 @@ function estimateParamsForStage(
     } else if (z.zone_area_sqm && z.zone_area_sqm > 0 && landPricePerSqm > 0) {
       // 구역 전체 토지 공시지가 기반 (개별 데이터 없을 때)
       estimatedTotal = (z.zone_area_sqm * landPricePerSqm) / 0.65 * 0.90;
-    } else if (existingUnits > 0 && z.neighbor_new_apt_price > 0) {
-      // 최후 수단: 인근 신축 시세 × 노후 할인 55% × 세대수 × 감정평가율
-      estimatedTotal = existingUnits * z.neighbor_new_apt_price * 0.55 * z.avg_appraisal_rate;
     } else if (existingUnits > 0 && input.purchasePrice > 0) {
-      // 최종 fallback: 매수가 ÷ 1.3 × 세대수 (프리미엄 30% 제거)
+      // 최종 fallback: 매수가 ÷ 1.3 × 세대수 (프리미엄 30% 제거 역산)
+      // neighbor_new_apt_price는 placeholder 오염 위험 → 사용 안 함
       estimatedTotal = existingUnits * (input.purchasePrice / 1.3);
     }
 
@@ -317,15 +315,17 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     : z.r_long;
 
   // 실거래가: MOLIT API 우선
-  const peak_local = (market.localPrice?.fromApi && market.localPrice.peakPricePerPyung > 0)
-    ? market.localPrice.peakPricePerPyung * desiredPyung  // 평당가 × 희망평형 = 총액
-    : z.peak_local;
-  const mdd_local = (market.localPrice?.fromApi && market.localPrice.mddRate > 0)
-    ? market.localPrice.mddRate
-    : z.mdd_local;
-  const neighbor_new_apt_price = (market.localPrice?.fromApi && market.localPrice.estimatedCurrentPrice > 0)
-    ? market.localPrice.estimatedCurrentPrice
-    : z.neighbor_new_apt_price;
+  // MOLIT 없으면 neighbor/peak는 0으로 — DB placeholder(20억 등)가 잘못된 계산을 유발
+  const molitOk = market.localPrice?.fromApi === true;
+  const peak_local = (molitOk && market.localPrice!.peakPricePerPyung > 0)
+    ? market.localPrice!.peakPricePerPyung * desiredPyung
+    : (molitOk ? z.peak_local : 0);
+  const mdd_local = (molitOk && market.localPrice!.mddRate > 0)
+    ? market.localPrice!.mddRate
+    : z.mdd_local;  // 낙폭률은 전국 공통이므로 DB default 유지
+  const neighbor_new_apt_price = (molitOk && market.localPrice!.estimatedCurrentPrice > 0)
+    ? market.localPrice!.estimatedCurrentPrice
+    : 0; // 미확인 — 수익 계산 불가 상태임을 명시
 
   // 감정평가율: 공시가격 API 우선
   const avg_appraisal_rate = (market.publicPrice?.fromApi && market.publicPrice.estimatedAppraisalRate > 0)
