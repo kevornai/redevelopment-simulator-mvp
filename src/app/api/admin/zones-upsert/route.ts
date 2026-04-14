@@ -4,7 +4,7 @@
  * DELETE /api/admin/zones-upsert?id=xxx  → 삭제
  */
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const KAKAO_REST_KEY = process.env.KAKAO_REST_API_KEY ?? "";
 
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   const { zone, mode } = await req.json();
   if (!zone?.zone_id) return NextResponse.json({ error: "zone_id 필수" }, { status: 400 });
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   // 주소가 있으면 지오코딩
   let coords: { lat: number; lng: number } | null = null;
@@ -101,7 +101,7 @@ export async function DELETE(req: NextRequest) {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id 필수" }, { status: 400 });
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { error } = await supabase.from("zones_data").delete().eq("zone_id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

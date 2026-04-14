@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 const DEFAULT_ROW = {
   avg_appraisal_rate: 1.3,
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "zones 배열이 비어있습니다." }, { status: 400 });
   }
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
 
   // 전체를 upsert 레코드로 변환 (지오코딩 없이 — 좌표는 별도로 나중에 채움)
   const records = zones.map((zone) => ({

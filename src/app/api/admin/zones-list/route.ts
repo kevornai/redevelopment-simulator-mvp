@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(_req: NextRequest) {
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("zones_data")
     .select("zone_id, zone_name, project_type, project_stage, lawd_cd, lat, lng, p_base, member_sale_price_per_pyung, total_appraisal_value, updated_at")
