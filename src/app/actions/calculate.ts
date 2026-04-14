@@ -150,6 +150,8 @@ export interface CalculationResult {
     molitOk: boolean;
     projectStageRank: number;
   };
+  /** 비정상 값 감지 시 경고 메시지 (결과는 유지) */
+  warnings: string[];
   calculatedAt: string;
 }
 
@@ -477,20 +479,20 @@ export async function calculateAnalysis(
   const neutral     = computeScenario("neutral",     effectiveInput, resolvedZ);
   const pessimistic = computeScenario("pessimistic", effectiveInput, resolvedZ);
 
-  // 산티 체크: 비례율 폭주 또는 분양가 0 감지 시 에러 반환
+  // 산티 체크: 비례율 폭주 또는 분양가 0 감지 시 경고 (결과는 유지)
   const allScenarios = [optimistic, neutral, pessimistic];
+  const warnings: string[] = [];
   const hasBadPropRate = allScenarios.some(
     (s) => s.proportionalRate > 500 || s.proportionalRate < 0
   );
   const hasBadPrice =
     allScenarios.some((s) => s.appliedGeneralSalePrice <= 0) ||
     resolvedZ.member_sale_price_per_pyung <= 0;
-  if (hasBadPropRate || hasBadPrice) {
-    return {
-      data: null,
-      error:
-        "계산 오류: 비례율 또는 분양가가 비정상입니다. API 조회 실패로 지역 시세를 반영하지 못했을 수 있습니다. 관리자 수동 검토가 필요합니다.",
-    };
+  if (hasBadPropRate) {
+    warnings.push("비례율이 비정상 범위입니다 (>500% 또는 <0%). API 조회 실패로 서울 기준 DB 기본값이 적용됐을 수 있습니다. 관리자 수동 검토 필요.");
+  }
+  if (hasBadPrice) {
+    warnings.push("분양가가 0 이하입니다. 지역 시세 데이터를 가져오지 못했을 가능성이 있습니다.");
   }
 
   return {
@@ -529,6 +531,7 @@ export async function calculateAnalysis(
         molitOk: marketData.localPrice?.fromApi === true,
         projectStageRank: stageRank(baseZone.project_stage),
       },
+      warnings,
       calculatedAt: new Date().toISOString(),
     },
     error: null,

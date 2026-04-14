@@ -430,6 +430,8 @@ export default function ReportTestClient() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"cards" | "table">("cards");
   const [adminOpen, setAdminOpen] = useState(false);
+  const [pyungUnit, setPyungUnit] = useState<"pyung" | "sqm">("pyung");
+  const [sqmRaw, setSqmRaw] = useState<string>("");
 
   function handleZoneChange(zoneId: string) {
     const recon = isReconstruction(zoneId);
@@ -595,11 +597,56 @@ export default function ReportTestClient() {
             </select>
           </div>
 
-          <NumberInput label="매수 희망가 (원)" value={form.purchasePrice} onChange={(v) => set("purchasePrice", v)} placeholder="예: 4500000000 (45억)" />
-          <NumberInput label="매수 시 대출금 (원)" value={form.purchaseLoanAmount} onChange={(v) => set("purchaseLoanAmount", v)} placeholder="예: 2000000000 (20억)" note="보유기간 이자 계산에 사용" />
-          <NumberInput label="현재 전/월세 보증금 (원)" value={form.currentDeposit} onChange={(v) => set("currentDeposit", v)} placeholder="예: 0 (거주 중이면 0)" />
-          <NumberInput label="희망 조합원 분양 평형 (평)" value={form.desiredPyung} onChange={(v) => set("desiredPyung", v)} placeholder="예: 59, 84" />
-          <NumberInput label="공동주택 공시가격 (원)" value={form.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="비워두면 단지명으로 자동 조회 (저층/중층/고층 평균)" note="입력 시 우선 적용 · 미입력 시 NSDI 자동조회" />
+          <NumberInput label="매수 희망가 (원)" value={form.purchasePrice} onChange={(v) => set("purchasePrice", v)} placeholder="예: 300000000" showWon />
+          <NumberInput label="매수 시 대출금 (원)" value={form.purchaseLoanAmount} onChange={(v) => set("purchaseLoanAmount", v)} placeholder="예: 200000000" note="보유기간 이자 계산에 사용" showWon />
+          <NumberInput label="현재 전/월세 보증금 (원)" value={form.currentDeposit} onChange={(v) => set("currentDeposit", v)} placeholder="예: 0 (거주 중이면 0)" showWon />
+
+          {/* 희망 조합원 분양 평형 — 평형/㎡ 토글 */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-zinc-700">희망 조합원 분양 평형</label>
+              <div className="flex rounded-lg overflow-hidden border border-zinc-300 text-xs">
+                <button type="button"
+                  onClick={() => setPyungUnit("pyung")}
+                  className={`px-2.5 py-1 font-medium transition-colors ${pyungUnit === "pyung" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}
+                >평형</button>
+                <button type="button"
+                  onClick={() => setPyungUnit("sqm")}
+                  className={`px-2.5 py-1 font-medium transition-colors ${pyungUnit === "sqm" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}
+                >㎡</button>
+              </div>
+            </div>
+            {pyungUnit === "pyung" ? (
+              <input
+                type="number"
+                value={form.desiredPyung || ""}
+                onChange={(e) => set("desiredPyung", Number(e.target.value))}
+                placeholder="예: 59, 84"
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            ) : (
+              <input
+                type="number"
+                value={sqmRaw}
+                onChange={(e) => {
+                  setSqmRaw(e.target.value);
+                  const sqm = parseFloat(e.target.value);
+                  if (sqm > 0) set("desiredPyung", Math.round(sqm / 3.3058 * 10) / 10);
+                }}
+                placeholder="예: 84.91 (84㎡ = 약 25.7평)"
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            )}
+            {form.desiredPyung > 0 && (
+              <p className="text-xs font-semibold text-blue-600">
+                {pyungUnit === "sqm"
+                  ? `≈ ${form.desiredPyung}평 (${(form.desiredPyung * 3.3058).toFixed(1)}㎡)`
+                  : `≈ ${(form.desiredPyung * 3.3058).toFixed(1)}㎡`}
+              </p>
+            )}
+          </div>
+
+          <NumberInput label="공동주택 공시가격 (원)" value={form.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="비워두면 단지명으로 자동 조회" note="입력 시 우선 적용 · 미입력 시 NSDI 자동조회" showWon />
 
           {/* 재건축 전용: 대지지분 */}
           {form.projectType === "reconstruction" && (
@@ -859,6 +906,14 @@ export default function ReportTestClient() {
                 매수가 {fWon(result.input.purchasePrice, true)} ·{" "}
                 계산 {new Date(result.calculatedAt).toLocaleTimeString("ko-KR")}
               </p>
+              {/* 계산 경고 배너 */}
+              {result.warnings.length > 0 && (
+                <div className="mt-2 rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 flex flex-col gap-1">
+                  {result.warnings.map((w, i) => (
+                    <p key={i} className="text-xs text-amber-800 font-medium">⚠️ {w}</p>
+                  ))}
+                </div>
+              )}
               {/* 실거래가 미확인 경고 */}
               {!result.marketDataSources.nearbyNewAptFromApi && (
                 <div className="mt-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 font-medium">
@@ -967,11 +1022,25 @@ export default function ReportTestClient() {
   );
 }
 
+function formatWon(v: number): string {
+  if (!v || v === 0) return "";
+  const abs = Math.abs(v);
+  const sign = v < 0 ? "-" : "";
+  const eok = Math.floor(abs / 100000000);
+  const man = Math.floor((abs % 100000000) / 10000);
+  if (eok > 0 && man > 0) return `${sign}${eok}억 ${man}만원`;
+  if (eok > 0) return `${sign}${eok}억원`;
+  if (man > 0) return `${sign}${man}만원`;
+  return `${sign}${abs.toLocaleString()}원`;
+}
+
 function NumberInput({
-  label, value, onChange, placeholder, note,
+  label, value, onChange, placeholder, note, showWon,
 }: {
-  label: string; value: number; onChange: (v: number) => void; placeholder?: string; note?: string;
+  label: string; value: number; onChange: (v: number) => void;
+  placeholder?: string; note?: string; showWon?: boolean;
 }) {
+  const formatted = showWon ? formatWon(value) : "";
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-sm font-medium text-zinc-700">{label}</label>
@@ -982,6 +1051,9 @@ function NumberInput({
         placeholder={placeholder}
         className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
       />
+      {formatted && (
+        <p className="text-xs font-semibold text-blue-600">{formatted}</p>
+      )}
       {note && <p className="text-xs text-zinc-400">{note}</p>}
     </div>
   );
