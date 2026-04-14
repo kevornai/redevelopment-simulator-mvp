@@ -414,18 +414,20 @@ export default function ReportTestClient() {
     zoneId: "banpo",
     projectType: "reconstruction",
     propertyType: "apartment",
-    purchasePrice: 4500000000,       // 매수가 45억 (반포주공 기준)
-    purchaseLoanAmount: 2000000000,  // 대출 20억
+    purchasePrice: 4500000000,
+    purchaseLoanAmount: 2000000000,
     currentDeposit: 0,
     desiredPyung: 59,
-    officialValuation: 2800000000,   // 공시가 28억 (예시)
-    landShareSqm: 16,                // 대지지분 16㎡ (등기부등본 기준)
+    officialValuation: 0,
+    landShareSqm: 0,
+    admin: {},
   });
 
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"cards" | "table">("cards");
+  const [adminOpen, setAdminOpen] = useState(false);
 
   function handleZoneChange(zoneId: string) {
     const recon = isReconstruction(zoneId);
@@ -472,6 +474,10 @@ export default function ReportTestClient() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function setAdmin(key: keyof NonNullable<CalculationInput["admin"]>, value: number | string | undefined) {
+    setForm((prev) => ({ ...prev, admin: { ...prev.admin, [key]: value || undefined } }));
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-12 flex flex-col gap-10">
       {/* 헤더 */}
@@ -515,7 +521,7 @@ export default function ReportTestClient() {
       {/* 입력 폼 */}
       <form id="analysis-form" onSubmit={handleSubmit} className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 flex flex-col gap-6">
         <div className="flex items-center justify-between">
-          <h2 className="font-bold text-zinc-900">입력값</h2>
+          <h2 className="font-bold text-zinc-900">사용자 입력값</h2>
           <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
             form.projectType === "reconstruction"
               ? "bg-blue-100 text-blue-700"
@@ -644,6 +650,138 @@ export default function ReportTestClient() {
         </button>
       </form>
 
+      {/* 관리자 입력값 */}
+      <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setAdminOpen(v => !v)}
+          className="w-full flex items-center justify-between px-8 py-4 hover:bg-amber-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded">관리자 전용</span>
+            <h2 className="font-bold text-zinc-900">관리자 입력값</h2>
+            <span className="text-xs text-zinc-400">— 입력 시 DB 기본값 대신 적용</span>
+          </div>
+          <span className="text-zinc-400 text-sm">{adminOpen ? "▲ 접기" : "▼ 펼치기"}</span>
+        </button>
+
+        {adminOpen && (
+          <div className="px-8 pb-8 flex flex-col gap-6 border-t border-amber-100">
+            {/* A. 사업성 핵심값 */}
+            <div className="flex flex-col gap-4 pt-6">
+              <div>
+                <p className="text-sm font-bold text-zinc-700">A. 사업성 핵심값</p>
+                <p className="text-xs text-zinc-400 mt-0.5">관리처분계획서 · 사업시행계획서에서 확인</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <AdminInput
+                  label="총종전자산 감정평가액 (원)"
+                  note="관리처분계획서 → 분담금 기준표 → 총종전자산평가액"
+                  placeholder="예: 95000000000 (950억)"
+                  value={form.admin?.totalAppraisalValue}
+                  onChange={v => setAdmin("totalAppraisalValue", v)}
+                />
+                <AdminInput
+                  label="계획 총연면적 (㎡)"
+                  note="사업시행계획서 → 건축계획 → 총연면적"
+                  placeholder="예: 47000"
+                  value={form.admin?.totalFloorArea}
+                  onChange={v => setAdmin("totalFloorArea", v)}
+                />
+                <AdminInput
+                  label="일반분양 면적 (㎡)"
+                  note="없으면 0 입력. 전체 조합원분양이면 0"
+                  placeholder="예: 0"
+                  value={form.admin?.generalSaleArea}
+                  onChange={v => setAdmin("generalSaleArea", v)}
+                />
+                <AdminInput
+                  label="조합원분양 면적 (㎡)"
+                  note="사업시행계획서 → 조합원분양 세대 × 평균전용면적"
+                  placeholder="예: 25000"
+                  value={form.admin?.memberSaleArea}
+                  onChange={v => setAdmin("memberSaleArea", v)}
+                />
+                <AdminInput
+                  label="조합원 분양가 (원/평)"
+                  note="분양공고문 또는 조합 공문. 미입력 시 일반분양가 × 78% 추정"
+                  placeholder="예: 35000000 (3,500만)"
+                  value={form.admin?.memberSalePricePerPyung}
+                  onChange={v => setAdmin("memberSalePricePerPyung", v)}
+                />
+                <AdminInput
+                  label="예상 일반분양가 (원/평)"
+                  note="인근 분양 사례 또는 HUG 분양가 상한제 기준"
+                  placeholder="예: 40000000 (4,000만)"
+                  value={form.admin?.generalSalePricePerPyung}
+                  onChange={v => setAdmin("generalSalePricePerPyung", v)}
+                />
+              </div>
+            </div>
+
+            {/* B. 시세 참고값 */}
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-sm font-bold text-zinc-700">B. 인근 시세 참고값</p>
+                <p className="text-xs text-zinc-400 mt-0.5">국토부 실거래가 공개시스템 또는 네이버 부동산에서 확인</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <AdminInput
+                  label="인근 신축 현재 시세 (원)"
+                  note="희망 평형 기준 총액. 입주 후 예상 매도가로 사용"
+                  placeholder="예: 600000000 (6억)"
+                  value={form.admin?.neighborNewAptPrice}
+                  onChange={v => setAdmin("neighborNewAptPrice", v)}
+                />
+              </div>
+            </div>
+
+            {/* C. 등기부등본 + 토지대장 */}
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-sm font-bold text-zinc-700">C. 등기부등본 · 토지대장</p>
+                <p className="text-xs text-zinc-400 mt-0.5">대지지분은 사용자 입력값에서 입력. 여기는 개별공시지가만</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <AdminInput
+                  label="개별공시지가 (원/㎡)"
+                  note="토지대장(인터넷등기소 또는 정부24) → 개별공시지가. 대지지분과 곱해 토지 감정평가액 산출"
+                  placeholder="예: 3500000 (350만원/㎡)"
+                  value={form.admin?.landOfficialPricePerSqm}
+                  onChange={v => setAdmin("landOfficialPricePerSqm", v)}
+                />
+              </div>
+            </div>
+
+            {/* D. 사업 일정 */}
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-sm font-bold text-zinc-700">D. 사업 일정</p>
+                <p className="text-xs text-zinc-400 mt-0.5">조합 공문 또는 정비몽땅 공고문에서 확인</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-zinc-700">착공예정월 (YYYYMM)</label>
+                  <input
+                    type="text"
+                    value={form.admin?.constructionStartYm ?? ""}
+                    onChange={e => setAdmin("constructionStartYm", e.target.value || undefined)}
+                    placeholder="예: 202603"
+                    maxLength={6}
+                    className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  />
+                  <p className="text-xs text-zinc-400">입력 시 DB 추정값 대신 사용</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 rounded-xl px-4 py-3 text-xs text-amber-700">
+              💡 비워둔 항목은 DB에 저장된 기본값이 적용됩니다. 정확한 분석을 위해 A 섹션의 사업성 핵심값은 반드시 입력하세요.
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* 에러 */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
@@ -755,10 +893,30 @@ function NumberInput({
       <label className="text-sm font-medium text-zinc-700">{label}</label>
       <input
         type="number"
-        value={value}
+        value={value || ""}
         onChange={(e) => onChange(Number(e.target.value))}
         placeholder={placeholder}
         className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+      {note && <p className="text-xs text-zinc-400">{note}</p>}
+    </div>
+  );
+}
+
+function AdminInput({
+  label, value, onChange, placeholder, note,
+}: {
+  label: string; value: number | undefined; onChange: (v: number) => void; placeholder?: string; note?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium text-zinc-700">{label}</label>
+      <input
+        type="number"
+        value={value ?? ""}
+        onChange={(e) => onChange(Number(e.target.value))}
+        placeholder={placeholder}
+        className="border border-amber-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50/30"
       />
       {note && <p className="text-xs text-zinc-400">{note}</p>}
     </div>

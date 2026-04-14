@@ -11,14 +11,31 @@ import { deriveMonthsToConstruction, deriveMemberSalePrice } from "@/lib/derive-
 
 export interface CalculationInput {
   zoneId: string;
-  projectType: "redevelopment" | "reconstruction"; // 재개발 | 재건축
-  propertyType: string;       // 'villa' | 'house' | 'apartment'
-  purchasePrice: number;      // 매수 희망가 (원)
-  purchaseLoanAmount: number; // 매수 시 대출금 (원) — 보유기간 이자 계산용
-  currentDeposit: number;     // 현재 전/월세 보증금 (원)
-  desiredPyung: number;       // 희망 조합원 분양 평형 (평)
-  officialValuation: number;  // 공동주택 공시가격 (원)
-  landShareSqm: number;       // 대지지분 (㎡) — 등기부등본 확인, 재건축 전용
+  projectType: "redevelopment" | "reconstruction";
+  propertyType: string;
+  purchasePrice: number;       // 매수 희망가 (원)
+  purchaseLoanAmount: number;  // 매수 시 대출금 (원)
+  currentDeposit: number;      // 전/월세 보증금 (원)
+  desiredPyung: number;        // 희망 조합원 분양 평형 (평)
+  officialValuation: number;   // 공동주택 공시가격 (원) — 0이면 NSDI 자동조회
+  landShareSqm: number;        // 대지지분 (㎡) — 등기부등본 표제부
+
+  // ── 관리자 override — 입력 시 DB값보다 우선 ──────────────────
+  admin?: {
+    // 사업성 핵심값 (관리처분계획서/사업시행계획서 기준)
+    totalAppraisalValue?: number;       // 총종전자산 감정평가액 (원)
+    totalFloorArea?: number;            // 계획 총연면적 (㎡)
+    generalSaleArea?: number;           // 일반분양 면적 (㎡) — 없으면 0
+    memberSaleArea?: number;            // 조합원분양 면적 (㎡)
+    memberSalePricePerPyung?: number;   // 조합원 분양가 (원/평) — 분양공고문
+    // 시세 참고값
+    neighborNewAptPrice?: number;       // 인근 신축 현재 시세 (원, 희망평형 기준)
+    generalSalePricePerPyung?: number;  // 예상 일반분양가 (원/평)
+    // 대지지분 기반 감정평가 (등기부등본+토지대장)
+    landOfficialPricePerSqm?: number;   // 개별공시지가 (원/㎡) — 토지대장
+    // 사업 일정
+    constructionStartYm?: string;       // 착공예정월 (YYYYMM) — 조합 공문
+  };
 }
 
 /** 사업 단계별 현금흐름 스냅샷 */
@@ -255,7 +272,20 @@ export async function calculateAnalysis(
     return { data: null, error: "해당 구역 데이터를 찾을 수 없습니다." };
   }
 
-  const z = zone as ZoneData;
+  // 관리자 override를 DB값에 병합 (입력값 우선)
+  const adm = input.admin ?? {};
+  const z: ZoneData = {
+    ...(zone as ZoneData),
+    ...(adm.totalAppraisalValue   ? { total_appraisal_value:        adm.totalAppraisalValue }   : {}),
+    ...(adm.totalFloorArea        ? { total_floor_area:              adm.totalFloorArea }         : {}),
+    ...(adm.generalSaleArea != null ? { general_sale_area:           adm.generalSaleArea }        : {}),
+    ...(adm.memberSaleArea        ? { member_sale_area:              adm.memberSaleArea }         : {}),
+    ...(adm.memberSalePricePerPyung ? { member_sale_price_per_pyung: adm.memberSalePricePerPyung, member_sale_price_source: "manual" as const } : {}),
+    ...(adm.neighborNewAptPrice   ? { neighbor_new_apt_price:        adm.neighborNewAptPrice }   : {}),
+    ...(adm.generalSalePricePerPyung ? { p_base:                    adm.generalSalePricePerPyung } : {}),
+    ...(adm.landOfficialPricePerSqm  ? { land_official_price_per_sqm: adm.landOfficialPricePerSqm } : {}),
+    ...(adm.constructionStartYm   ? { construction_start_announced_ym: adm.constructionStartYm } : {}),
+  };
   const zoneName = z.zone_name ?? input.zoneId;
 
   // 실시간 시장 데이터 수집 (실패 시 자동 fallback)
