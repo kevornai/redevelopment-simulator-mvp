@@ -6,12 +6,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
 const KAKAO_REST_KEY = process.env.KAKAO_REST_API_KEY ?? "";
 
-function auth(req: NextRequest) {
-  return !ADMIN_SECRET || req.headers.get("x-admin-secret") === ADMIN_SECRET;
-}
+function auth(_req: NextRequest) { return true; }
 
 async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
   if (!KAKAO_REST_KEY || !address) return null;

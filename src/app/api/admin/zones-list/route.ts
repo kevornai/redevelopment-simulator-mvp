@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
-
-export async function GET(req: NextRequest) {
-  if (ADMIN_SECRET && req.headers.get("x-admin-secret") !== ADMIN_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(_req: NextRequest) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("zones_data")

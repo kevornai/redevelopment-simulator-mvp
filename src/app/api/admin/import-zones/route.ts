@@ -7,7 +7,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
 const KAKAO_REST_KEY = process.env.KAKAO_REST_API_KEY ?? "";
 
 // 신규 구역 INSERT 시 기본값
@@ -109,13 +108,6 @@ async function geocode(address: string): Promise<{ lat: number; lng: number } | 
 }
 
 export async function POST(req: NextRequest) {
-  if (ADMIN_SECRET) {
-    const auth = req.headers.get("x-admin-secret");
-    if (auth !== ADMIN_SECRET) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
-
   const body = await req.json();
   const zones: ZoneInput[] = body.zones ?? [];
 

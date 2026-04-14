@@ -9,16 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncAllZones, syncZone } from "@/lib/zone-sync";
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET ?? "";
-
 export async function POST(req: NextRequest) {
-  // 인증 (Vercel 환경변수 ADMIN_SECRET 필요)
-  if (ADMIN_SECRET) {
-    const authHeader = req.headers.get("x-admin-secret");
-    if (authHeader !== ADMIN_SECRET) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
 
   const { searchParams } = new URL(req.url);
   const zoneId = searchParams.get("id");
