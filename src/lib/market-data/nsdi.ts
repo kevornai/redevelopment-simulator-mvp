@@ -142,7 +142,8 @@ export async function fetchPublicPriceByName(
       typeName: 'getApartHousePrice',
       output: 'application/json',
       maxFeatures: '100',
-      cql_filter: `kaptName LIKE '%${complexName}%' AND stdYear='${year}'`,
+      // 괄호 등 특수문자 제거 후 검색 (CQL 쿼리 안전성)
+      cql_filter: `kaptName LIKE '%${complexName.replace(/[()（）]/g, '').trim()}%' AND stdYear='${year}'`,
     });
 
     const res = await fetch(`${NSDI_BASE}?${params}`, { signal: AbortSignal.timeout(8000) });
@@ -153,7 +154,7 @@ export async function fetchPublicPriceByName(
     if (features.length === 0) {
       // 전년도로 재시도
       const prevParams = new URLSearchParams(params);
-      prevParams.set('cql_filter', `kaptName LIKE '%${complexName}%' AND stdYear='${year - 1}'`);
+      prevParams.set('cql_filter', `kaptName LIKE '%${complexName.replace(/[()（）]/g, '').trim()}%' AND stdYear='${year - 1}'`);
       const prevRes = await fetch(`${NSDI_BASE}?${prevParams}`, { signal: AbortSignal.timeout(8000) });
       const prevJson: NsdiResponse = await prevRes.json();
       features.push(...(prevJson.features ?? []));

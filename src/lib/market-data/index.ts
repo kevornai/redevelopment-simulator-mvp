@@ -81,7 +81,7 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
   // 실거래가 (법정동코드 있을 때만)
   let localPrice = null;
   if (lawdCd && molitKey) {
-    const result = await fetchLocalPrice(molitKey, lawdCd, desiredPyung);
+    const result = await fetchLocalPrice(molitKey, lawdCd, desiredPyung, 12, complexName ?? undefined);
     if (result.data) localPrice = result.data;
     else console.warn('[market-data] MOLIT 실패:', result.error);
   }

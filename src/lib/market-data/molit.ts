@@ -131,20 +131,23 @@ function maxDrawdown(pricesByMonth: number[][]): number {
  * 특정 법정동코드 기준 실거래가 분석
  * @param lawdCd 5자리 시군구 코드 (예: "11650" = 서초구)
  * @param desiredPyung 희망 전용면적 (평)
- * @param lookbackMonths 조회 기간 (기본 24개월 — MDD 계산용)
+ * @param lookbackMonths 조회 기간 (기본 12개월 — 타임아웃 방지)
+ * @param complexName 단지명 필터 — 있으면 해당 단지 거래만 사용
  */
 export async function fetchLocalPrice(
   serviceKey: string,
   lawdCd: string,
   desiredPyung: number,
-  lookbackMonths = 24,
+  lookbackMonths = 12,
+  complexName?: string,
 ): Promise<ApiResult<LocalPriceData>> {
   try {
-    const months = recentMonths(lookbackMonths);
+    // 6개월치만 조회 (타임아웃 방지 — 부족하면 넓힘)
+    const months = recentMonths(Math.min(lookbackMonths, 6));
     const currentYear = new Date().getFullYear();
     const newAptCutoffYear = currentYear - 5;
 
-    // 병렬 조회 (최대 12개월씩 batch)
+    // 병렬 조회
     const batchResults = await Promise.all(
       months.map(ym => fetchMonthTransactions(serviceKey, lawdCd, ym))
     );
@@ -152,12 +155,23 @@ export async function fetchLocalPrice(
     const allTx: ApartmentTransaction[] = [];
     const pricesByMonth: number[][] = [];
 
+    // 단지명 정규화 (괄호/특수문자 제거 후 비교)
+    const normalizedComplex = complexName
+      ? complexName.replace(/[()（）\[\]]/g, '').replace(/\s+/g, '').toLowerCase()
+      : null;
+
     for (const items of batchResults) {
       const monthPrices: number[] = [];
       for (const item of items) {
         const price = parsePrice(item.거래금액);
         const areaSqm = parseArea(item.전용면적);
         if (price <= 0 || areaSqm <= 0) continue;
+
+        // 단지명 필터 — 있으면 해당 단지만
+        if (normalizedComplex && item.아파트) {
+          const itemName = item.아파트.replace(/[()（）\[\]]/g, '').replace(/\s+/g, '').toLowerCase();
+          if (!itemName.includes(normalizedComplex) && !normalizedComplex.includes(itemName)) continue;
+        }
 
         const pyung = sqmToPyung(areaSqm);
         const pricePerPyung = price / pyung;
