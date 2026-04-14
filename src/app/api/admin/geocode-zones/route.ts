@@ -23,23 +23,26 @@ async function geocode(address: string): Promise<{ lat: number; lng: number } | 
   } catch { return null; }
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const supabase = createAdminClient();
 
-  // lat/lng 없는 구역 조회 (zone_name과 sigungu 포함)
+  // 한 번에 처리할 배치 크기 (Vercel 10s 타임아웃 고려 — 건당 ~200ms)
+  const { limit = 30 } = await req.json().catch(() => ({ limit: 30 }));
+
+  // lat/lng 없는 구역 조회
   const { data: zones, error } = await supabase
     .from("zones_data")
     .select("zone_id, zone_name, sigungu")
-    .or("lat.is.null,lng.is.null");
+    .or("lat.is.null,lng.is.null")
+    .limit(limit);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!zones?.length) return NextResponse.json({ message: "좌표 없는 구역이 없습니다.", count: 0 });
+  if (!zones?.length) return NextResponse.json({ done: true, success: 0, remaining: 0 });
 
   let success = 0;
   let failed = 0;
 
   for (const zone of zones) {
-    // 검색어: "시군 구역명" 조합
     const query = [zone.sigungu, zone.zone_name].filter(Boolean).join(" ");
     if (!query) { failed++; continue; }
 
@@ -54,5 +57,11 @@ export async function POST() {
     if (upErr) { failed++; } else { success++; }
   }
 
-  return NextResponse.json({ success, failed, total: zones.length });
+  // 남은 개수 확인
+  const { count } = await supabase
+    .from("zones_data")
+    .select("zone_id", { count: "exact", head: true })
+    .or("lat.is.null,lng.is.null");
+
+  return NextResponse.json({ done: (count ?? 0) === 0, success, failed, remaining: count ?? 0 });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 
 // ── 공통 매핑 ─────────────────────────────────────────────────
 const STAGE_MAP: Record<string, string> = {
@@ -227,6 +227,8 @@ export default function AdminUploadPage() {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [status, setStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [resultMsg, setResultMsg] = useState("");
+  const [geoStatus, setGeoStatus] = useState<{ geocoding: boolean; done: number; remaining: number } | null>(null);
+  const stopGeoRef = useRef(false);
 
   const [debugInfo, setDebugInfo] = useState<string>("");
 
@@ -253,6 +255,28 @@ export default function AdminUploadPage() {
   const toggleAll = (v: boolean) =>
     setRows(prev => prev.map(r => ({ ...r, selected: v })));
 
+  const runGeocoding = async () => {
+    stopGeoRef.current = false;
+    setGeoStatus({ geocoding: true, done: 0, remaining: 999 });
+    let totalDone = 0;
+    while (!stopGeoRef.current) {
+      try {
+        const res = await fetch("/api/admin/geocode-zones", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: 30 }),
+        });
+        const d = await res.json();
+        totalDone += d.success ?? 0;
+        setGeoStatus({ geocoding: !d.done, done: totalDone, remaining: d.remaining ?? 0 });
+        if (d.done) break;
+      } catch {
+        break;
+      }
+    }
+    stopGeoRef.current = false;
+  };
+
   const save = async () => {
     const selected = rows.filter(r => r.selected);
     if (!selected.length) return;
@@ -266,12 +290,8 @@ export default function AdminUploadPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "저장 실패");
       setStatus("done");
-      setResultMsg(`✅ ${data.upserted}개 저장 완료 — 지도 좌표 채우는 중...`);
-      // 저장 성공 후 자동 지오코딩
-      fetch("/api/admin/geocode-zones", { method: "POST" })
-        .then(r => r.json())
-        .then(d => setResultMsg(`✅ ${data.upserted}개 저장 · 좌표 ${d.success ?? 0}개 채움 완료`))
-        .catch(() => setResultMsg(`✅ ${data.upserted}개 저장 완료 (좌표 채우기 실패)`));
+      setResultMsg(`✅ ${data.upserted}개 저장 완료`);
+      runGeocoding();
     } catch (e) {
       setStatus("error");
       setResultMsg(`❌ ${e}`);
@@ -288,7 +308,16 @@ export default function AdminUploadPage() {
             <h1 className="text-2xl font-bold text-zinc-900">정비사업 데이터 업로드</h1>
             <p className="text-sm text-zinc-500 mt-1">엑셀에서 복사 → 붙여넣기 → DB 저장</p>
           </div>
-          <a href="/admin/zones" className="text-sm text-blue-600 hover:underline">← 구역 관리로</a>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={runGeocoding}
+              disabled={geoStatus?.geocoding}
+              className="px-4 py-2 text-sm font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-xl hover:bg-blue-100 disabled:opacity-40"
+            >
+              🗺 좌표 없는 구역 채우기
+            </button>
+            <a href="/admin/zones" className="text-sm text-blue-600 hover:underline">← 구역 관리로</a>
+          </div>
         </div>
 
         {/* 포맷 선택 */}
@@ -368,6 +397,25 @@ export default function AdminUploadPage() {
             {resultMsg && (
               <div className={`px-6 py-3 text-sm font-medium ${status === "done" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
                 {resultMsg}
+              </div>
+            )}
+            {geoStatus && (
+              <div className="px-6 py-3 text-sm bg-blue-50 text-blue-700 flex items-center gap-3">
+                {geoStatus.geocoding && (
+                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                )}
+                {geoStatus.geocoding
+                  ? `🗺 지도 좌표 채우는 중... (완료 ${geoStatus.done}개 · 남은 구역 ${geoStatus.remaining}개)`
+                  : `🗺 좌표 채우기 완료 — ${geoStatus.done}개 처리됨`
+                }
+                {geoStatus.geocoding && (
+                  <button
+                    onClick={() => { stopGeoRef.current = true; }}
+                    className="ml-auto text-xs text-blue-500 hover:text-blue-700 underline"
+                  >
+                    중지
+                  </button>
+                )}
               </div>
             )}
 
