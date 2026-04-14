@@ -11,11 +11,12 @@ import type { MarketData, ConstructionCostData, RateData } from './types';
 import { fetchRates, RATE_FALLBACK } from './ecos';
 import { CONSTRUCTION_COST_FALLBACK } from './kosis';
 import { fetchLocalPrice } from './molit';
-import { estimateFromOfficialPrice, fetchPublicPriceByName } from './nsdi';
+import { estimateFromOfficialPrice, fetchPublicPriceByName, fetchPublicPriceByBjdCode } from './nsdi';
 import { createClient } from '@supabase/supabase-js';
 
 interface FetchMarketDataOptions {
   lawdCd?: string | null;
+  bjdCode?: string | null;       // 법정동코드 10자리 — NSDI 정밀 조회
   desiredPyung?: number;
   officialPrice?: number | null;
   /** 단지명 — 공시가격 미입력 시 NSDI 자동 조회에 사용 */
@@ -66,7 +67,7 @@ async function fetchRatesWithCache(apiKey: string): Promise<RateData> {
 }
 
 export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promise<MarketData> {
-  const { lawdCd, desiredPyung = 84, officialPrice, complexName } = opts;
+  const { lawdCd, bjdCode, desiredPyung = 84, officialPrice, complexName } = opts;
 
   const ecosKey = process.env.ECOS_API_KEY ?? '';
   const molitKey = process.env.MOLIT_API_KEY ?? '';
@@ -86,12 +87,16 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     else console.warn('[market-data] MOLIT 실패:', result.error);
   }
 
-  // 공시가격: 입력값 있으면 그대로, 없으면 단지명으로 NSDI 자동 조회
+  // 공시가격: 입력값 있으면 그대로, 없으면 NSDI 자동 조회
+  // bjdCode(10자리) + 단지명 → 가장 정확
+  // bjdCode 없으면 단지명만으로 검색 (괄호 안 이름 추출 포함)
   let publicPrice = null;
   if (officialPrice && officialPrice > 0) {
     publicPrice = estimateFromOfficialPrice(officialPrice);
-  } else if (complexName && nsdiKey) {
-    const result = await fetchPublicPriceByName(nsdiKey, complexName);
+  } else if (nsdiKey && complexName) {
+    const result = bjdCode
+      ? await fetchPublicPriceByBjdCode(nsdiKey, bjdCode, complexName)
+      : await fetchPublicPriceByName(nsdiKey, complexName);
     if (result.data) publicPrice = result.data;
     else console.warn('[market-data] NSDI 자동조회 실패:', result.error);
   }

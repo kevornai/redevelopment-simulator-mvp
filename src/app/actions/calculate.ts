@@ -69,7 +69,7 @@ export interface ScenarioResult {
 
   // ── 감정평가 & 비례율 ──
   estimatedAppraisalValue: number;  // 예상 감정평가액
-  appraisalMethod: "land_based" | "official_rate"; // 감정평가 계산 방식
+  appraisalMethod: "land_based" | "official_rate" | "purchase_based"; // 감정평가 계산 방식
   proportionalRate: number;         // 비례율 (%)
   rightsValue: number;              // 권리가액
 
@@ -169,11 +169,127 @@ interface ZoneData {
   target_yield_rate: number;
   contribution_at_construction: number;
   existing_apt_pyung: number | null;
-  lawd_cd: string | null;             // 법정동코드 (5자리 시군구)
-  land_official_price_per_sqm: number | null; // 개별공시지가 (원/㎡) — 관리자 입력
-  construction_start_announced_ym: string | null; // 착공예정월 (YYYYMM) — 공표 시 입력
+  lawd_cd: string | null;
+  bjd_code: string | null;             // 법정동코드 10자리 — NSDI 공시가격 조회
+  land_official_price_per_sqm: number | null;
+  construction_start_announced_ym: string | null;
   member_sale_price_source: "cost_estimated" | "announced" | "manual";
   zone_name: string | null;
+  // 0013 migration — Excel 임포트 데이터
+  zone_area_sqm: number | null;
+  existing_units_total: number | null;
+  planned_units_total: number | null;
+  planned_units_member: number | null;
+  planned_units_general: number | null;
+  floor_area_ratio_new: number | null;
+}
+
+// ─── 단계 순서 (낮을수록 초기 단계) ───────────────────────────────────────────
+const STAGE_RANK: Record<string, number> = {
+  zone_designation: 1, basic_plan: 2,
+  project_implementation: 3, management_disposal: 4,
+  relocation: 5, construction_start: 6, completion: 7,
+};
+function stageRank(stage: string): number {
+  return STAGE_RANK[stage] ?? 0;
+}
+
+/**
+ * 사업 단계가 아직 도달하지 않은 항목은 DB 플레이스홀더 대신 추정값으로 대체.
+ * Excel 임포트 데이터(세대수·구역면적·용적률)를 활용해 역산.
+ *
+ * B섹션 (project_implementation 미만):
+ *   total_floor_area  — 용적률×구역면적 or 세대수×평형 역산
+ *   general_sale_area / member_sale_area — 세대수 비율로 배분
+ *   p_base (일반분양가) — MOLIT 시세×0.85
+ *
+ * C섹션 (management_disposal 미만):
+ *   total_appraisal_value — 세대수×공시가×감정평가율 or 구역면적×공시지가 역산
+ */
+function estimateParamsForStage(
+  z: ZoneData,
+  input: CalculationInput,
+  market: MarketData,
+): Partial<ZoneData> {
+  const rank = stageRank(z.project_stage);
+  const overrides: Partial<ZoneData> = {};
+
+  // ── B섹션: 사업시행인가 이전 ─────────────────────────────────────────────
+  if (rank < STAGE_RANK.project_implementation) {
+    // 총연면적 추정
+    let estimatedFloorArea = 0;
+    if (z.floor_area_ratio_new && z.floor_area_ratio_new > 0 && z.zone_area_sqm && z.zone_area_sqm > 0) {
+      // 가장 정확: 용적률 × 구역면적 → 지상연면적. 지하층 포함 × 1.3
+      estimatedFloorArea = z.zone_area_sqm * (z.floor_area_ratio_new / 100) * 1.3;
+    } else if (z.planned_units_total && z.planned_units_total > 0) {
+      // 세대수 기반: 전용59㎡→분양85㎡ 환산(×1.44) × 세대수 × 지하층(×1.3)
+      const avgUnitSqm = input.desiredPyung * 3.3058 * 1.44;
+      estimatedFloorArea = z.planned_units_total * avgUnitSqm * 1.3;
+    }
+
+    if (estimatedFloorArea > 0) {
+      overrides.total_floor_area = estimatedFloorArea;
+
+      // 지상 연면적 (지하층 제외)에서 분양면적 배분 (분양면적/지상연면적 ≈ 80%)
+      const aboveGround = estimatedFloorArea / 1.3;
+      const totalUnits = z.planned_units_total ?? 0;
+      const memberUnits = z.planned_units_member ?? 0;
+      const generalUnits = z.planned_units_general ?? 0;
+
+      if (totalUnits > 0) {
+        overrides.member_sale_area  = aboveGround * (memberUnits  / totalUnits) * 0.80;
+        overrides.general_sale_area = aboveGround * (generalUnits / totalUnits) * 0.80;
+      } else {
+        // 세대수 비율 모를 때: 조합원 65% / 일반 35% 기본
+        overrides.member_sale_area  = aboveGround * 0.65 * 0.80;
+        overrides.general_sale_area = aboveGround * 0.35 * 0.80;
+      }
+    }
+
+    // 일반분양가(p_base) 추정: 실거래가 중위값 × 0.85 (분양가 할인율)
+    if (market.localPrice?.fromApi && market.localPrice.medianNewAptPricePerPyung > 0) {
+      overrides.p_base = market.localPrice.medianNewAptPricePerPyung * 0.85;
+    } else if (z.neighbor_new_apt_price > 0 && input.desiredPyung > 0) {
+      overrides.p_base = (z.neighbor_new_apt_price / input.desiredPyung) * 0.85;
+    }
+  }
+
+  // ── C섹션: 관리처분인가 이전 ─────────────────────────────────────────────
+  if (rank < STAGE_RANK.management_disposal) {
+    const existingUnits  = z.existing_units_total ?? z.planned_units_member ?? 0;
+    const officialVal    = input.officialValuation > 0 ? input.officialValuation
+                           : (market.publicPrice?.officialPrice ?? 0);
+    const landPricePerSqm = (input.admin?.landOfficialPricePerSqm ?? 0) ||
+                            (z.land_official_price_per_sqm ?? 0);
+    const landShareSqm   = input.landShareSqm;
+
+    let estimatedTotal = 0;
+
+    if (existingUnits > 0 && officialVal > 0) {
+      // 최우선: 세대수 × 사용자 공시가 × 감정평가율
+      // × 0.9 보정: 사용자 단위가 구역 내 평균보다 클 수 있음(소형 세대 많음)
+      estimatedTotal = existingUnits * officialVal * z.avg_appraisal_rate * 0.9;
+    } else if (existingUnits > 0 && landShareSqm > 0 && landPricePerSqm > 0) {
+      // 대지지분 × 개별공시지가 → 토지 감정평가액 × 세대수
+      const landAppraisalPerUnit = (landShareSqm * landPricePerSqm) / 0.65 * 0.90;
+      estimatedTotal = existingUnits * landAppraisalPerUnit;
+    } else if (z.zone_area_sqm && z.zone_area_sqm > 0 && landPricePerSqm > 0) {
+      // 구역 전체 토지 공시지가 기반 (개별 데이터 없을 때)
+      estimatedTotal = (z.zone_area_sqm * landPricePerSqm) / 0.65 * 0.90;
+    } else if (existingUnits > 0 && z.neighbor_new_apt_price > 0) {
+      // 최후 수단: 인근 신축 시세 × 노후 할인 55% × 세대수 × 감정평가율
+      estimatedTotal = existingUnits * z.neighbor_new_apt_price * 0.55 * z.avg_appraisal_rate;
+    } else if (existingUnits > 0 && input.purchasePrice > 0) {
+      // 최종 fallback: 매수가 ÷ 1.3 × 세대수 (프리미엄 30% 제거)
+      estimatedTotal = existingUnits * (input.purchasePrice / 1.3);
+    }
+
+    if (estimatedTotal > 0) {
+      overrides.total_appraisal_value = estimatedTotal;
+    }
+  }
+
+  return overrides;
 }
 
 /**
@@ -272,36 +388,53 @@ export async function calculateAnalysis(
     return { data: null, error: "해당 구역 데이터를 찾을 수 없습니다." };
   }
 
-  // 관리자 override를 DB값에 병합 (입력값 우선)
-  const adm = input.admin ?? {};
-  const z: ZoneData = {
-    ...(zone as ZoneData),
-    ...(adm.totalAppraisalValue   ? { total_appraisal_value:        adm.totalAppraisalValue }   : {}),
-    ...(adm.totalFloorArea        ? { total_floor_area:              adm.totalFloorArea }         : {}),
-    ...(adm.generalSaleArea != null ? { general_sale_area:           adm.generalSaleArea }        : {}),
-    ...(adm.memberSaleArea        ? { member_sale_area:              adm.memberSaleArea }         : {}),
-    ...(adm.memberSalePricePerPyung ? { member_sale_price_per_pyung: adm.memberSalePricePerPyung, member_sale_price_source: "manual" as const } : {}),
-    ...(adm.neighborNewAptPrice   ? { neighbor_new_apt_price:        adm.neighborNewAptPrice }   : {}),
-    ...(adm.generalSalePricePerPyung ? { p_base:                    adm.generalSalePricePerPyung } : {}),
-    ...(adm.landOfficialPricePerSqm  ? { land_official_price_per_sqm: adm.landOfficialPricePerSqm } : {}),
-    ...(adm.constructionStartYm   ? { construction_start_announced_ym: adm.constructionStartYm } : {}),
-  };
-  const zoneName = z.zone_name ?? input.zoneId;
+  const baseZone = zone as ZoneData;
+  const zoneName = baseZone.zone_name ?? input.zoneId;
 
-  // 실시간 시장 데이터 수집 (실패 시 자동 fallback)
+  // Step 1: 실시간 시장 데이터 수집 — base zone의 lawd_cd/bjd_code/zone_name 사용
   const marketData = await fetchMarketData({
-    lawdCd: z.lawd_cd ?? undefined,
+    lawdCd: baseZone.lawd_cd ?? undefined,
+    bjdCode: baseZone.bjd_code ?? undefined,
     desiredPyung: input.desiredPyung,
     officialPrice: input.officialValuation,
-    complexName: z.zone_name ?? undefined,
+    complexName: baseZone.zone_name ?? undefined,
   });
 
-  // API 데이터로 Zone 상수 오버라이드
+  // Step 2: 단계 미도달 필드 추정 (DB 플레이스홀더 → 역산 추정값)
+  const estimatedOverrides = estimateParamsForStage(baseZone, input, marketData);
+
+  // Step 3: 관리자 override (최우선) → 추정값 → DB값 순으로 병합
+  const adm = input.admin ?? {};
+  const z: ZoneData = {
+    ...baseZone,
+    ...estimatedOverrides,  // 단계 추정값 (DB 플레이스홀더 대체)
+    // 관리자 명시 입력값 (가장 높은 우선순위)
+    ...(adm.totalAppraisalValue    ? { total_appraisal_value:          adm.totalAppraisalValue }    : {}),
+    ...(adm.totalFloorArea         ? { total_floor_area:                adm.totalFloorArea }          : {}),
+    ...(adm.generalSaleArea != null ? { general_sale_area:              adm.generalSaleArea }         : {}),
+    ...(adm.memberSaleArea         ? { member_sale_area:                adm.memberSaleArea }          : {}),
+    ...(adm.memberSalePricePerPyung ? { member_sale_price_per_pyung:    adm.memberSalePricePerPyung, member_sale_price_source: "manual" as const } : {}),
+    ...(adm.neighborNewAptPrice    ? { neighbor_new_apt_price:          adm.neighborNewAptPrice }    : {}),
+    ...(adm.generalSalePricePerPyung ? { p_base:                       adm.generalSalePricePerPyung } : {}),
+    ...(adm.landOfficialPricePerSqm  ? { land_official_price_per_sqm:  adm.landOfficialPricePerSqm } : {}),
+    ...(adm.constructionStartYm    ? { construction_start_announced_ym: adm.constructionStartYm }   : {}),
+  };
+
+  // Step 4: 공시가 — 사용자 입력 우선, 없으면 NSDI 자동조회 결과 사용
+  const effectiveOfficialValuation =
+    input.officialValuation > 0
+      ? input.officialValuation
+      : (marketData.publicPrice?.officialPrice ?? 0);
+  const effectiveInput = effectiveOfficialValuation !== input.officialValuation
+    ? { ...input, officialValuation: effectiveOfficialValuation }
+    : input;
+
+  // Step 5: API 데이터로 Zone 상수 오버라이드
   const resolvedZ = resolveZoneParams(z, marketData, input.desiredPyung) as ResolvedZoneData;
 
-  const optimistic  = computeScenario("optimistic", input, resolvedZ);
-  const neutral     = computeScenario("neutral", input, resolvedZ);
-  const pessimistic = computeScenario("pessimistic", input, resolvedZ);
+  const optimistic  = computeScenario("optimistic",  effectiveInput, resolvedZ);
+  const neutral     = computeScenario("neutral",     effectiveInput, resolvedZ);
+  const pessimistic = computeScenario("pessimistic", effectiveInput, resolvedZ);
 
   return {
     data: {
@@ -445,13 +578,21 @@ function computeScenario(
   let estimatedAppraisalValue: number;
 
   if (landShareSqm > 0 && z.land_official_price_per_sqm && z.land_official_price_per_sqm > 0) {
+    // 대지지분 + 개별공시지가로 정밀 계산
     const landPublicValue   = landShareSqm * z.land_official_price_per_sqm;
     const landAppraisal     = landPublicValue / 0.65 * 0.90;
     const buildingPublic    = Math.max(0, officialValuation - landPublicValue);
     const buildingAppraisal = buildingPublic / 0.69 * 0.80;
     estimatedAppraisalValue = landAppraisal + buildingAppraisal;
-  } else {
+  } else if (officialValuation > 0) {
+    // 공시가 × 감정평가율
     estimatedAppraisalValue = officialValuation * z.avg_appraisal_rate;
+  } else {
+    // 모든 가격 정보 없음 → 매수가 기반 역산
+    // 재건축 구축 아파트: 프리미엄(웃돈) 제거 → 토지 감정평가액 추정
+    // 통상 재건축 매수가 = 감정평가액 × (1 + 프리미엄율)
+    // 프리미엄율 0.3 가정: 감정평가액 ≈ 매수가 ÷ 1.3
+    estimatedAppraisalValue = purchasePrice / 1.3;
   }
   const rightsValue             = estimatedAppraisalValue * (proportionalRate / 100);
   const estimatedPremium        = purchasePrice - estimatedAppraisalValue;
@@ -608,7 +749,10 @@ function computeScenario(
     appliedGeneralSalePrice: Math.round(P),
     memberSalePriceSource: z._derivedSources.memberSalePrice,
     estimatedAppraisalValue: Math.round(estimatedAppraisalValue),
-    appraisalMethod: (landShareSqm > 0 && z.land_official_price_per_sqm ? "land_based" : "official_rate") as "land_based" | "official_rate",
+    appraisalMethod: (
+      landShareSqm > 0 && z.land_official_price_per_sqm ? "land_based" :
+      officialValuation > 0 ? "official_rate" : "purchase_based"
+    ) as "land_based" | "official_rate" | "purchase_based",
     proportionalRate: Math.round(proportionalRate * 10) / 10,
     rightsValue: Math.round(rightsValue),
     estimatedPremium: Math.round(estimatedPremium),

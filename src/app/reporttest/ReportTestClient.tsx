@@ -214,11 +214,13 @@ function ScenarioCard({ r, desiredPyung }: { r: ScenarioResult; desiredPyung: nu
                   <span className="flex items-center gap-1.5">
                     예상 감정평가액
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                      r.appraisalMethod === "land_based"
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-zinc-100 text-zinc-500"
+                      r.appraisalMethod === "land_based"    ? "bg-blue-100 text-blue-700" :
+                      r.appraisalMethod === "official_rate" ? "bg-green-100 text-green-700" :
+                                                              "bg-amber-100 text-amber-700"
                     }`}>
-                      {r.appraisalMethod === "land_based" ? "대지지분 기반" : "공시가 기반"}
+                      {r.appraisalMethod === "land_based"    ? "대지지분 기반" :
+                       r.appraisalMethod === "official_rate" ? "공시가 기반" :
+                                                               "매수가 역산 (추정)"}
                     </span>
                   </span>
                 }
@@ -667,117 +669,170 @@ export default function ReportTestClient() {
 
         {adminOpen && (
           <div className="px-8 pb-8 flex flex-col gap-6 border-t border-amber-100">
-            {/* A. 사업성 핵심값 */}
-            <div className="flex flex-col gap-4 pt-6">
-              <div>
-                <p className="text-sm font-bold text-zinc-700">A. 사업성 핵심값</p>
-                <p className="text-xs text-zinc-400 mt-0.5">관리처분계획서 · 사업시행계획서에서 확인</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <AdminInput
-                  label="총종전자산 감정평가액 (원)"
-                  note="관리처분계획서 → 분담금 기준표 → 총종전자산평가액"
-                  placeholder="예: 95000000000 (950억)"
-                  value={form.admin?.totalAppraisalValue}
-                  onChange={v => setAdmin("totalAppraisalValue", v)}
-                />
-                <AdminInput
-                  label="계획 총연면적 (㎡)"
-                  note="사업시행계획서 → 건축계획 → 총연면적"
-                  placeholder="예: 47000"
-                  value={form.admin?.totalFloorArea}
-                  onChange={v => setAdmin("totalFloorArea", v)}
-                />
-                <AdminInput
-                  label="일반분양 면적 (㎡)"
-                  note="없으면 0 입력. 전체 조합원분양이면 0"
-                  placeholder="예: 0"
-                  value={form.admin?.generalSaleArea}
-                  onChange={v => setAdmin("generalSaleArea", v)}
-                />
-                <AdminInput
-                  label="조합원분양 면적 (㎡)"
-                  note="사업시행계획서 → 조합원분양 세대 × 평균전용면적"
-                  placeholder="예: 25000"
-                  value={form.admin?.memberSaleArea}
-                  onChange={v => setAdmin("memberSaleArea", v)}
-                />
-                <AdminInput
-                  label="조합원 분양가 (원/평)"
-                  note="분양공고문 또는 조합 공문. 미입력 시 일반분양가 × 78% 추정"
-                  placeholder="예: 35000000 (3,500만)"
-                  value={form.admin?.memberSalePricePerPyung}
-                  onChange={v => setAdmin("memberSalePricePerPyung", v)}
-                />
-                <AdminInput
-                  label="예상 일반분양가 (원/평)"
-                  note="인근 분양 사례 또는 HUG 분양가 상한제 기준"
-                  placeholder="예: 40000000 (4,000만)"
-                  value={form.admin?.generalSalePricePerPyung}
-                  onChange={v => setAdmin("generalSalePricePerPyung", v)}
-                />
-              </div>
-            </div>
+            {(() => {
+              const stage = dbZones.find(z => z.zone_id === form.zoneId)?.project_stage ?? "";
+              // 단계 순서 (낮을수록 초기)
+              const STAGE_ORDER: Record<string, number> = {
+                zone_designation: 1, basic_plan: 2,
+                project_implementation: 3,
+                management_disposal: 4, relocation: 5,
+                construction_start: 6, completion: 7,
+              };
+              const rank = STAGE_ORDER[stage] ?? 0;
+              const atLeast = (s: string) => rank >= (STAGE_ORDER[s] ?? 99);
 
-            {/* B. 시세 참고값 */}
-            <div className="flex flex-col gap-4">
-              <div>
-                <p className="text-sm font-bold text-zinc-700">B. 인근 시세 참고값</p>
-                <p className="text-xs text-zinc-400 mt-0.5">국토부 실거래가 공개시스템 또는 네이버 부동산에서 확인</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <AdminInput
-                  label="인근 신축 현재 시세 (원)"
-                  note="희망 평형 기준 총액. 입주 후 예상 매도가로 사용"
-                  placeholder="예: 600000000 (6억)"
-                  value={form.admin?.neighborNewAptPrice}
-                  onChange={v => setAdmin("neighborNewAptPrice", v)}
-                />
-              </div>
-            </div>
+              const STAGE_LABEL: Record<string, string> = {
+                zone_designation: "구역지정", basic_plan: "기본계획",
+                project_implementation: "사업시행인가", management_disposal: "관리처분인가",
+                relocation: "이주·철거", construction_start: "착공", completion: "준공",
+              };
 
-            {/* C. 등기부등본 + 토지대장 */}
-            <div className="flex flex-col gap-4">
-              <div>
-                <p className="text-sm font-bold text-zinc-700">C. 등기부등본 · 토지대장</p>
-                <p className="text-xs text-zinc-400 mt-0.5">대지지분은 사용자 입력값에서 입력. 여기는 개별공시지가만</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <AdminInput
-                  label="개별공시지가 (원/㎡)"
-                  note="토지대장(인터넷등기소 또는 정부24) → 개별공시지가. 대지지분과 곱해 토지 감정평가액 산출"
-                  placeholder="예: 3500000 (350만원/㎡)"
-                  value={form.admin?.landOfficialPricePerSqm}
-                  onChange={v => setAdmin("landOfficialPricePerSqm", v)}
-                />
-              </div>
-            </div>
+              function StageLock({ minStage }: { minStage: string }) {
+                if (atLeast(minStage)) return null;
+                return (
+                  <p className="text-xs text-rose-500 mt-0.5 font-medium">
+                    🔒 {STAGE_LABEL[minStage]} 이후 확인 가능
+                  </p>
+                );
+              }
 
-            {/* D. 사업 일정 */}
-            <div className="flex flex-col gap-4">
-              <div>
-                <p className="text-sm font-bold text-zinc-700">D. 사업 일정</p>
-                <p className="text-xs text-zinc-400 mt-0.5">조합 공문 또는 정비몽땅 공고문에서 확인</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-zinc-700">착공예정월 (YYYYMM)</label>
-                  <input
-                    type="text"
-                    value={form.admin?.constructionStartYm ?? ""}
-                    onChange={e => setAdmin("constructionStartYm", e.target.value || undefined)}
-                    placeholder="예: 202603"
-                    maxLength={6}
-                    className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  />
-                  <p className="text-xs text-zinc-400">입력 시 DB 추정값 대신 사용</p>
-                </div>
-              </div>
-            </div>
+              return (
+                <>
+                  {/* 현재 단계 표시 */}
+                  {stage && (
+                    <div className="pt-5 flex items-center gap-2 text-sm">
+                      <span className="text-zinc-400">현재 사업 단계:</span>
+                      <span className="font-semibold text-zinc-800 bg-zinc-100 px-2.5 py-0.5 rounded-full">
+                        {STAGE_LABEL[stage] ?? stage}
+                      </span>
+                      <span className="text-xs text-zinc-400">— 잠긴 항목은 해당 단계가 되어야 확인 가능</span>
+                    </div>
+                  )}
 
-            <div className="bg-amber-50 rounded-xl px-4 py-3 text-xs text-amber-700">
-              💡 비워둔 항목은 DB에 저장된 기본값이 적용됩니다. 정확한 분석을 위해 A 섹션의 사업성 핵심값은 반드시 입력하세요.
-            </div>
+                  {/* A. 항상 입력 가능 */}
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <p className="text-sm font-bold text-zinc-700">A. 시세 · 토지대장 (항상 입력 가능)</p>
+                      <p className="text-xs text-zinc-400 mt-0.5">네이버 부동산 · 정부24 토지대장에서 확인</p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <AdminInput
+                        label="인근 신축 현재 시세 (원)"
+                        note="희망 평형 기준 총액. 입주 후 예상 매도가"
+                        placeholder="예: 600000000 (6억)"
+                        value={form.admin?.neighborNewAptPrice}
+                        onChange={v => setAdmin("neighborNewAptPrice", v)}
+                      />
+                      <AdminInput
+                        label="개별공시지가 (원/㎡)"
+                        note="정부24 → 토지대장. 대지지분과 곱해 토지 감정평가액 산출"
+                        placeholder="예: 3500000 (350만/㎡)"
+                        value={form.admin?.landOfficialPricePerSqm}
+                        onChange={v => setAdmin("landOfficialPricePerSqm", v)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* B. 사업시행인가 이후 */}
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <p className={`text-sm font-bold ${atLeast("project_implementation") ? "text-zinc-700" : "text-zinc-400"}`}>
+                        B. 건축계획 (사업시행인가 이후)
+                      </p>
+                      <p className="text-xs text-zinc-400 mt-0.5">사업시행계획서 → 건축계획에서 확인</p>
+                      {!atLeast("project_implementation") && (
+                        <p className="text-xs text-rose-500 mt-0.5 font-medium">🔒 사업시행인가 이후 확인 가능</p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <AdminInput
+                        label="계획 총연면적 (㎡)"
+                        note="사업시행계획서 → 건축계획 → 총연면적"
+                        placeholder="예: 47000"
+                        value={form.admin?.totalFloorArea}
+                        onChange={v => setAdmin("totalFloorArea", v)}
+                        disabled={!atLeast("project_implementation")}
+                      />
+                      <AdminInput
+                        label="일반분양 면적 (㎡)"
+                        note="없으면 0 입력"
+                        placeholder="예: 0"
+                        value={form.admin?.generalSaleArea}
+                        onChange={v => setAdmin("generalSaleArea", v)}
+                        disabled={!atLeast("project_implementation")}
+                      />
+                      <AdminInput
+                        label="조합원분양 면적 (㎡)"
+                        note="조합원분양 세대 × 평균전용면적"
+                        placeholder="예: 25000"
+                        value={form.admin?.memberSaleArea}
+                        onChange={v => setAdmin("memberSaleArea", v)}
+                        disabled={!atLeast("project_implementation")}
+                      />
+                      <AdminInput
+                        label="예상 일반분양가 (원/평)"
+                        note="HUG 분양가 상한제 또는 인근 분양 사례"
+                        placeholder="예: 40000000 (4,000만)"
+                        value={form.admin?.generalSalePricePerPyung}
+                        onChange={v => setAdmin("generalSalePricePerPyung", v)}
+                        disabled={!atLeast("project_implementation")}
+                      />
+                    </div>
+                  </div>
+
+                  {/* C. 관리처분인가 이후 */}
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <p className={`text-sm font-bold ${atLeast("management_disposal") ? "text-zinc-700" : "text-zinc-400"}`}>
+                        C. 분담금 핵심값 (관리처분인가 이후) ⭐
+                      </p>
+                      <p className="text-xs text-zinc-400 mt-0.5">관리처분계획서 → 분담금 기준표에서 확인. 이 두 값이 가장 중요</p>
+                      {!atLeast("management_disposal") && (
+                        <p className="text-xs text-rose-500 mt-0.5 font-medium">🔒 관리처분인가 이후 확인 가능 — 현재는 추정값으로 계산</p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <AdminInput
+                        label="총종전자산 감정평가액 (원) ⭐"
+                        note="관리처분계획서 → 분담금 기준표 → 총종전자산평가액 합계"
+                        placeholder="예: 95000000000 (950억)"
+                        value={form.admin?.totalAppraisalValue}
+                        onChange={v => setAdmin("totalAppraisalValue", v)}
+                        disabled={!atLeast("management_disposal")}
+                      />
+                      <AdminInput
+                        label="조합원 분양가 (원/평) ⭐"
+                        note="관리처분계획서 → 조합원분양가 또는 분양공고문"
+                        placeholder="예: 35000000 (3,500만)"
+                        value={form.admin?.memberSalePricePerPyung}
+                        onChange={v => setAdmin("memberSalePricePerPyung", v)}
+                        disabled={!atLeast("management_disposal")}
+                      />
+                      <div className="flex flex-col gap-1.5">
+                        <label className={`text-sm font-medium ${atLeast("management_disposal") ? "text-zinc-700" : "text-zinc-400"}`}>
+                          착공예정월 (YYYYMM)
+                        </label>
+                        <input
+                          type="text"
+                          value={form.admin?.constructionStartYm ?? ""}
+                          onChange={e => setAdmin("constructionStartYm", e.target.value || undefined)}
+                          disabled={!atLeast("management_disposal")}
+                          placeholder="예: 202603"
+                          maxLength={6}
+                          className="border border-amber-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-zinc-50"
+                        />
+                        <p className="text-xs text-zinc-400">조합 공문 또는 정비몽땅 공고</p>
+                        <StageLock minStage="management_disposal" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-amber-50 rounded-xl px-4 py-3 text-xs text-amber-700">
+                    💡 비워둔 항목은 DB 기본값이 적용됩니다. C 섹션(총종전자산·조합원분양가)이 가장 정확도에 큰 영향을 줍니다.
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -904,19 +959,21 @@ function NumberInput({
 }
 
 function AdminInput({
-  label, value, onChange, placeholder, note,
+  label, value, onChange, placeholder, note, disabled,
 }: {
-  label: string; value: number | undefined; onChange: (v: number) => void; placeholder?: string; note?: string;
+  label: string; value: number | undefined; onChange: (v: number) => void;
+  placeholder?: string; note?: string; disabled?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium text-zinc-700">{label}</label>
+      <label className={`text-sm font-medium ${disabled ? "text-zinc-400" : "text-zinc-700"}`}>{label}</label>
       <input
         type="number"
         value={value ?? ""}
         onChange={(e) => onChange(Number(e.target.value))}
         placeholder={placeholder}
-        className="border border-amber-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50/30"
+        disabled={disabled}
+        className="border border-amber-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-amber-50/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-zinc-50"
       />
       {note && <p className="text-xs text-zinc-400">{note}</p>}
     </div>

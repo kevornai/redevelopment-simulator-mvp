@@ -9,7 +9,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const KAKAO_REST_KEY = process.env.KAKAO_REST_API_KEY ?? "";
 
-async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
+interface GeoResult {
+  lat: number;
+  lng: number;
+  bjdCode: string | null; // 법정동코드 10자리
+}
+
+async function geocode(address: string): Promise<GeoResult | null> {
   if (!KAKAO_REST_KEY || !address.trim()) return null;
   try {
     const res = await fetch(
@@ -19,7 +25,9 @@ async function geocode(address: string): Promise<{ lat: number; lng: number } | 
     const json = await res.json();
     const doc = json.documents?.[0];
     if (!doc) return null;
-    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
+    // b_code: 법정동코드 10자리 (address 객체에 있음)
+    const bjdCode: string | null = doc.address?.b_code ?? doc.road_address?.x ?? null;
+    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x), bjdCode };
   } catch { return null; }
 }
 
@@ -109,7 +117,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 주소 → 좌표 병렬 지오코딩 (50개씩 묶어서)
-  const coordMap = new Map<string, { lat: number; lng: number } | null>();
+  const coordMap = new Map<string, GeoResult | null>();
   const GEO_BATCH = 50;
   for (let i = 0; i < zones.length; i += GEO_BATCH) {
     const batch = zones.slice(i, i + GEO_BATCH);
@@ -136,9 +144,10 @@ export async function POST(req: NextRequest) {
       lawd_cd: zone.lawdCd || null,
       avg_appraisal_rate: zone.projectType === "reconstruction" ? 1.05 : 1.3,
       updated_at: new Date().toISOString(),
-      // 좌표 (주소로 지오코딩)
+      // 좌표 + 법정동코드 (카카오 지오코딩)
       lat: coords?.lat ?? null,
       lng: coords?.lng ?? null,
+      bjd_code: coords?.bjdCode ?? null,
       // 상세 필드
       zone_area_sqm: zone.zone_area_sqm ?? null,
       existing_building_year: zone.existing_building_year ?? null,
