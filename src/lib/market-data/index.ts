@@ -73,18 +73,32 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
   const molitKey = process.env.MOLIT_API_KEY ?? '';
   const nsdiKey = process.env.NSDI_API_KEY ?? '';
 
+  // bjdCode 앞 5자리가 lawdCd보다 정확 (Kakao 지오코딩 결과)
+  const effectiveLawdCd = (bjdCode?.slice(0, 5)) || lawdCd || null;
+
   // 금리(ECOS) + 공사비(DB캐시) 병렬 조회
   const [rates, constructionCost] = await Promise.all([
     ecosKey ? fetchRatesWithCache(ecosKey) : Promise.resolve(RATE_FALLBACK),
     fetchConstructionCostFromCache(),
   ]);
 
-  // 실거래가 (법정동코드 있을 때만)
+  // MOLIT 2회 병렬 조회:
+  //   ① 구역 자체 물건 (구축 단지명 필터) — 재개발 구역은 대부분 null
+  //   ② 인근 신축(5년 이내) 시세 (complexName 없이, 법정동 전체) — p_base/peak/neighbor 자동산출
   let localPrice = null;
-  if (lawdCd && molitKey) {
-    const result = await fetchLocalPrice(molitKey, lawdCd, desiredPyung, 12, complexName ?? undefined);
-    if (result.data) localPrice = result.data;
-    else console.warn('[market-data] MOLIT 실패:', result.error);
+  let nearbyNewAptPrice = null;
+  if (effectiveLawdCd && molitKey) {
+    const [localResult, nearbyResult] = await Promise.all([
+      complexName
+        ? fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 6, complexName)
+        : Promise.resolve({ data: null, error: 'no complexName' } as const),
+      fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 12, undefined, true),
+    ]);
+    if (localResult.data) localPrice = localResult.data;
+    else console.warn('[market-data] MOLIT 구역거래가 실패:', localResult.error);
+
+    if (nearbyResult.data) nearbyNewAptPrice = nearbyResult.data;
+    else console.warn('[market-data] MOLIT 인근신축 실패:', nearbyResult.error);
   }
 
   // 공시가격: 입력값 있으면 그대로, 없으면 NSDI 자동 조회
@@ -101,7 +115,7 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     else console.warn('[market-data] NSDI 자동조회 실패:', result.error);
   }
 
-  return { rates, constructionCost, localPrice, publicPrice, fetchedAt: new Date().toISOString() };
+  return { rates, constructionCost, localPrice, nearbyNewAptPrice, publicPrice, fetchedAt: new Date().toISOString() };
 }
 
 export { fetchLocalPrice } from './molit';

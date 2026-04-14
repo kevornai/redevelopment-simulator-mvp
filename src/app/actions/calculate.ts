@@ -309,18 +309,41 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     ? market.constructionCost.rLong
     : z.r_long;
 
-  // 실거래가: MOLIT API 우선
-  // MOLIT 없으면 neighbor/peak는 0으로 — DB placeholder(20억 등)가 잘못된 계산을 유발
-  const molitOk = market.localPrice?.fromApi === true;
-  const peak_local = (molitOk && market.localPrice!.peakPricePerPyung > 0)
-    ? market.localPrice!.peakPricePerPyung * desiredPyung
-    : (molitOk ? z.peak_local : 0);
-  const mdd_local = (molitOk && market.localPrice!.mddRate > 0)
-    ? market.localPrice!.mddRate
-    : z.mdd_local;  // 낙폭률은 전국 공통이므로 DB default 유지
-  const neighbor_new_apt_price = (molitOk && market.localPrice!.estimatedCurrentPrice > 0)
-    ? market.localPrice!.estimatedCurrentPrice
-    : 0; // 미확인 — 수익 계산 불가 상태임을 명시
+  // 시세 데이터 우선순위:
+  //   1. nearbyNewAptPrice (인근 신축 5년 이내, complexName 없이 법정동 전체 조회) ← 가장 신뢰
+  //   2. localPrice (구역 자체 단지 거래 — 재개발 구역은 대부분 null)
+  //   3. 0 (DB placeholder 오염 방지 — 서울 기준 20억 등을 쓰면 지방에서 폭주)
+  const nearbyOk = market.nearbyNewAptPrice?.fromApi === true;
+  const molitOk  = market.localPrice?.fromApi === true;
+
+  // p_base (일반분양 예상 평당가): 인근 신축 중위가 → 구역 거래 중위가 → DB값
+  // DB값은 서울 기준(7천만/평)이므로 API 없을 때 그대로 쓰면 지방에서 비례율 폭주
+  const p_base = nearbyOk && market.nearbyNewAptPrice!.medianNewAptPricePerPyung > 0
+    ? market.nearbyNewAptPrice!.medianNewAptPricePerPyung
+    : (molitOk && market.localPrice!.medianNewAptPricePerPyung > 0
+      ? market.localPrice!.medianNewAptPricePerPyung
+      : z.p_base);
+
+  // peak_local (역대 최고 시세, 희망평형 기준): 인근 신축 최고가 → 구역 최고가 → 0
+  const peak_local = nearbyOk && market.nearbyNewAptPrice!.peakPricePerPyung > 0
+    ? market.nearbyNewAptPrice!.peakPricePerPyung * desiredPyung
+    : (molitOk && market.localPrice!.peakPricePerPyung > 0
+      ? market.localPrice!.peakPricePerPyung * desiredPyung
+      : 0);
+
+  // mdd_local (역사적 낙폭률): 신축 시계열 → 구역 시계열 → DB default (낙폭률은 전국 공통이므로 DB도 OK)
+  const mdd_local = nearbyOk && market.nearbyNewAptPrice!.mddRate > 0
+    ? market.nearbyNewAptPrice!.mddRate
+    : (molitOk && market.localPrice!.mddRate > 0
+      ? market.localPrice!.mddRate
+      : z.mdd_local);
+
+  // neighbor_new_apt_price (입주 후 예상 시세, 희망평형 기준): 인근 신축 시세 → 0
+  const neighbor_new_apt_price = nearbyOk && market.nearbyNewAptPrice!.estimatedCurrentPrice > 0
+    ? market.nearbyNewAptPrice!.estimatedCurrentPrice
+    : (molitOk && market.localPrice!.estimatedCurrentPrice > 0
+      ? market.localPrice!.estimatedCurrentPrice
+      : 0);
 
   // 감정평가율: 공시가격 API 우선
   const avg_appraisal_rate = (market.publicPrice?.fromApi && market.publicPrice.estimatedAppraisalRate > 0)
@@ -335,11 +358,11 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
   const months_to_construction_start = monthsDerived.value;
   const months_to_construction_source = monthsDerived.source; // "announced" | "statistical"
 
-  // ── 조합원 분양가: 공표/수동 입력값 있으면 그대로, 없으면 p_base × 0.78 추정
+  // ── 조합원 분양가: 공표/수동 입력값 있으면 그대로, 없으면 p_base(API 기반) × 0.78 추정
   const memberSaleDerived = deriveMemberSalePrice(
     z.member_sale_price_per_pyung,
     z.member_sale_price_source,
-    z.p_base,
+    p_base,  // API에서 갱신된 p_base 기준
   );
   const member_sale_price_per_pyung = memberSaleDerived.value;
   const member_sale_price_source = memberSaleDerived.source;
@@ -351,6 +374,7 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     target_yield_rate,
     r_recent,
     r_long,
+    p_base,
     peak_local,
     mdd_local,
     neighbor_new_apt_price,
@@ -398,22 +422,8 @@ export async function calculateAnalysis(
   // Step 2: 단계 미도달 필드 추정 (DB 플레이스홀더 → 역산 추정값)
   const estimatedOverrides = estimateParamsForStage(baseZone, input, marketData);
 
-  // Step 3: 관리자 override (최우선) → 추정값 → DB값 순으로 병합
-  const adm = input.admin ?? {};
-  const z: ZoneData = {
-    ...baseZone,
-    ...estimatedOverrides,  // 단계 추정값 (DB 플레이스홀더 대체)
-    // 관리자 명시 입력값 (가장 높은 우선순위)
-    ...(adm.totalAppraisalValue    ? { total_appraisal_value:          adm.totalAppraisalValue }    : {}),
-    ...(adm.totalFloorArea         ? { total_floor_area:                adm.totalFloorArea }          : {}),
-    ...(adm.generalSaleArea != null ? { general_sale_area:              adm.generalSaleArea }         : {}),
-    ...(adm.memberSaleArea         ? { member_sale_area:                adm.memberSaleArea }          : {}),
-    ...(adm.memberSalePricePerPyung ? { member_sale_price_per_pyung:    adm.memberSalePricePerPyung, member_sale_price_source: "manual" as const } : {}),
-    ...(adm.neighborNewAptPrice    ? { neighbor_new_apt_price:          adm.neighborNewAptPrice }    : {}),
-    ...(adm.generalSalePricePerPyung ? { p_base:                       adm.generalSalePricePerPyung } : {}),
-    ...(adm.landOfficialPricePerSqm  ? { land_official_price_per_sqm:  adm.landOfficialPricePerSqm } : {}),
-    ...(adm.constructionStartYm    ? { construction_start_announced_ym: adm.constructionStartYm }   : {}),
-  };
+  // Step 3: DB + 추정값 병합 (API 오버라이드 전 기준값)
+  const zForApi: ZoneData = { ...baseZone, ...estimatedOverrides };
 
   // Step 4: 공시가 — 사용자 입력 우선, 없으면 NSDI 자동조회 결과 사용
   const effectiveOfficialValuation =
@@ -424,8 +434,24 @@ export async function calculateAnalysis(
     ? { ...input, officialValuation: effectiveOfficialValuation }
     : input;
 
-  // Step 5: API 데이터로 Zone 상수 오버라이드
-  const resolvedZ = resolveZoneParams(z, marketData, input.desiredPyung) as ResolvedZoneData;
+  // Step 5: API 데이터로 Zone 상수 오버라이드 (nearbyNewAptPrice → p_base/peak_local/neighbor)
+  const apiResolved = resolveZoneParams(zForApi, marketData, input.desiredPyung) as ResolvedZoneData;
+
+  // Step 6: 관리자 명시 입력값 최우선 적용 (API 값을 덮어씀)
+  // 관리자가 직접 입력한 값은 어떤 자동화 값보다 우선
+  const adm = input.admin ?? {};
+  const resolvedZ: ResolvedZoneData = {
+    ...apiResolved,
+    ...(adm.totalAppraisalValue      ? { total_appraisal_value:          adm.totalAppraisalValue }    : {}),
+    ...(adm.totalFloorArea           ? { total_floor_area:                adm.totalFloorArea }          : {}),
+    ...(adm.generalSaleArea != null  ? { general_sale_area:               adm.generalSaleArea }         : {}),
+    ...(adm.memberSaleArea           ? { member_sale_area:                adm.memberSaleArea }          : {}),
+    ...(adm.memberSalePricePerPyung  ? { member_sale_price_per_pyung:     adm.memberSalePricePerPyung, member_sale_price_source: "manual" as const } : {}),
+    ...(adm.neighborNewAptPrice      ? { neighbor_new_apt_price:          adm.neighborNewAptPrice }    : {}),
+    ...(adm.generalSalePricePerPyung ? { p_base:                         adm.generalSalePricePerPyung } : {}),
+    ...(adm.landOfficialPricePerSqm  ? { land_official_price_per_sqm:    adm.landOfficialPricePerSqm } : {}),
+    ...(adm.constructionStartYm      ? { construction_start_announced_ym: adm.constructionStartYm }   : {}),
+  };
 
   const optimistic  = computeScenario("optimistic",  effectiveInput, resolvedZ);
   const neutral     = computeScenario("neutral",     effectiveInput, resolvedZ);
@@ -435,8 +461,8 @@ export async function calculateAnalysis(
     data: {
       zoneId: input.zoneId,
       zoneName,
-      projectType: z.project_type,
-      projectStage: z.project_stage,
+      projectType: baseZone.project_type,
+      projectStage: baseZone.project_stage,
       input,
       optimistic,
       neutral,

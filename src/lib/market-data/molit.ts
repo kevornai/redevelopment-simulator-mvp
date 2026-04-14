@@ -133,6 +133,7 @@ function maxDrawdown(pricesByMonth: number[][]): number {
  * @param desiredPyung 희망 전용면적 (평)
  * @param lookbackMonths 조회 기간 (기본 12개월 — 타임아웃 방지)
  * @param complexName 단지명 필터 — 있으면 해당 단지 거래만 사용
+ * @param newAptOnly true이면 신축(5년 이내) 거래만 포함 — 인근 신축 시세 조회 시 사용
  */
 export async function fetchLocalPrice(
   serviceKey: string,
@@ -140,6 +141,7 @@ export async function fetchLocalPrice(
   desiredPyung: number,
   lookbackMonths = 12,
   complexName?: string,
+  newAptOnly = false,
 ): Promise<ApiResult<LocalPriceData>> {
   try {
     // 6개월치만 조회 (타임아웃 방지 — 부족하면 넓힘)
@@ -173,9 +175,13 @@ export async function fetchLocalPrice(
           if (!itemName.includes(normalizedComplex) && !normalizedComplex.includes(itemName)) continue;
         }
 
+        const buildYear = parseInt(item.건축년도 || '0', 10);
+
+        // newAptOnly 모드: 신축(5년 이내)만 포함 — 구축 오염 방지
+        if (newAptOnly && buildYear > 0 && buildYear < newAptCutoffYear) continue;
+
         const pyung = sqmToPyung(areaSqm);
         const pricePerPyung = price / pyung;
-        const buildYear = parseInt(item.건축년도 || '0', 10);
         const dealYm = (item.년 || '') + (item.월 || '').padStart(2, '0');
 
         allTx.push({

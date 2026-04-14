@@ -67,7 +67,10 @@ export interface PublicPriceData {
 export interface MarketData {
   rates: RateData;
   constructionCost: ConstructionCostData;
-  localPrice: LocalPriceData | null;   // 구역 법정동코드 없으면 null
+  /** 구역 자체 물건(구축) 거래가 — 재개발 구역은 대부분 null */
+  localPrice: LocalPriceData | null;
+  /** 구역 인근 신축(5년 이내) 아파트 시세 — p_base/peak_local/neighbor 자동 산출용 */
+  nearbyNewAptPrice: LocalPriceData | null;
   publicPrice: PublicPriceData | null;
   fetchedAt: string;
 }

@@ -141,13 +141,15 @@ export async function POST(req: NextRequest) {
       sigungu: zone.region || null,
       project_type: zone.projectType,
       project_stage: zone.projectStage,
-      lawd_cd: zone.lawdCd || null,
       avg_appraisal_rate: zone.projectType === "reconstruction" ? 1.05 : 1.3,
       updated_at: new Date().toISOString(),
       // 좌표 + 법정동코드 (카카오 지오코딩)
       lat: coords?.lat ?? null,
       lng: coords?.lng ?? null,
       bjd_code: coords?.bjdCode ?? null,
+      // lawd_cd: bjdCode 앞 5자리 우선 (지오코딩이 Excel보다 정확)
+      // Excel값은 시(41110) 단위라 시군구(41113) 단위와 다를 수 있음
+      lawd_cd: (coords?.bjdCode?.slice(0, 5)) || zone.lawdCd || null,
       // 상세 필드
       zone_area_sqm: zone.zone_area_sqm ?? null,
       existing_building_year: zone.existing_building_year ?? null,
