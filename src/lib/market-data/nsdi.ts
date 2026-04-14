@@ -121,6 +121,88 @@ export async function fetchPublicPrice(
   }
 }
 
+/**
+ * 단지명으로 공시가격 자동 조회 — 저층/중층/고층 샘플 평균
+ * 동/호 모를 때 사용. maxFeatures=100으로 조회 후 층별 샘플링.
+ */
+export async function fetchPublicPriceByName(
+  apiKey: string,
+  complexName: string,
+): Promise<ApiResult<PublicPriceData>> {
+  try {
+    const year = new Date().getFullYear();
+    const realizationRate = getRealizationRate(year);
+
+    const params = new URLSearchParams({
+      key: apiKey,
+      domain: 'revo-invest.com',
+      service: 'WFS',
+      version: '2.0.0',
+      request: 'GetFeature',
+      typeName: 'getApartHousePrice',
+      output: 'application/json',
+      maxFeatures: '100',
+      cql_filter: `kaptName LIKE '%${complexName}%' AND stdYear='${year}'`,
+    });
+
+    const res = await fetch(`${NSDI_BASE}?${params}`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return { data: null, error: `NSDI HTTP ${res.status}` };
+
+    const json: NsdiResponse = await res.json();
+    const features = json.features ?? [];
+    if (features.length === 0) {
+      // 전년도로 재시도
+      const prevParams = new URLSearchParams(params);
+      prevParams.set('cql_filter', `kaptName LIKE '%${complexName}%' AND stdYear='${year - 1}'`);
+      const prevRes = await fetch(`${NSDI_BASE}?${prevParams}`, { signal: AbortSignal.timeout(8000) });
+      const prevJson: NsdiResponse = await prevRes.json();
+      features.push(...(prevJson.features ?? []));
+    }
+    if (features.length === 0) return { data: null, error: `NSDI: "${complexName}" 공시가격 없음` };
+
+    // 호수에서 층 번호 추출 → 저층/중층/고층 샘플링
+    const withFloor = features
+      .map(f => {
+        const ho = f.properties?.hoNm ?? '';
+        const price = typeof f.properties?.pblntfPc === 'string'
+          ? parseInt((f.properties.pblntfPc as string).replace(/,/g, ''), 10)
+          : Number(f.properties?.pblntfPc ?? 0);
+        const floor = parseInt(ho.replace(/[^0-9]/g, '').slice(0, 2) || '0', 10);
+        return { price, floor };
+      })
+      .filter(x => x.price > 0 && x.floor > 0)
+      .sort((a, b) => a.floor - b.floor);
+
+    if (withFloor.length === 0) {
+      // 층 정보 없으면 그냥 평균
+      const prices = features.map(f => {
+        const p = f.properties?.pblntfPc;
+        return typeof p === 'string' ? parseInt(p.replace(/,/g, ''), 10) : Number(p ?? 0);
+      }).filter(p => p > 0);
+      if (prices.length === 0) return { data: null, error: 'NSDI: 유효한 가격 없음' };
+      const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+      return { data: { officialPrice: Math.round(avg), realizationRate, estimatedAppraisalRate: 0.9 / realizationRate, fromApi: true }, error: null };
+    }
+
+    const maxFloor = withFloor[withFloor.length - 1].floor;
+    const pick = (pct: number) => {
+      const target = Math.round(maxFloor * pct);
+      return withFloor.reduce((best, cur) =>
+        Math.abs(cur.floor - target) < Math.abs(best.floor - target) ? cur : best
+      );
+    };
+    const samples = [pick(0.15), pick(0.5), pick(0.85)];
+    const avg = samples.reduce((s, x) => s + x.price, 0) / samples.length;
+
+    return {
+      data: { officialPrice: Math.round(avg), realizationRate, estimatedAppraisalRate: 0.9 / realizationRate, fromApi: true },
+      error: null,
+    };
+  } catch (err) {
+    return { data: null, error: String(err) };
+  }
+}
+
 /** fallback: 공시가격 직접 입력 시 현실화율만 적용 */
 export function estimateFromOfficialPrice(
   officialPrice: number,

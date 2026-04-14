@@ -574,14 +574,14 @@ export default function ReportTestClient() {
             <label className="text-sm font-medium text-zinc-700">물건 유형</label>
             <select
               value={form.propertyType}
-              onChange={(e) => set("propertyType", e.target.value)}
-              className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={form.projectType !== "reconstruction"}
+              className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-zinc-50 disabled:text-zinc-400"
             >
               {form.projectType === "reconstruction"
                 ? <option value="apartment">아파트</option>
                 : <>
-                    <option value="villa">빌라</option>
-                    <option value="house">단독주택</option>
+                    <option value="villa">빌라 (준비중)</option>
+                    <option value="house">단독주택 (준비중)</option>
                   </>
               }
             </select>
@@ -591,7 +591,7 @@ export default function ReportTestClient() {
           <NumberInput label="매수 시 대출금 (원)" value={form.purchaseLoanAmount} onChange={(v) => set("purchaseLoanAmount", v)} placeholder="예: 2000000000 (20억)" note="보유기간 이자 계산에 사용" />
           <NumberInput label="현재 전/월세 보증금 (원)" value={form.currentDeposit} onChange={(v) => set("currentDeposit", v)} placeholder="예: 0 (거주 중이면 0)" />
           <NumberInput label="희망 조합원 분양 평형 (평)" value={form.desiredPyung} onChange={(v) => set("desiredPyung", v)} placeholder="예: 59, 84" />
-          <NumberInput label="공동주택 공시가격 (원)" value={form.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="예: 2800000000 (28억)" note="국토부 부동산 공시가격 알리미 조회" />
+          <NumberInput label="공동주택 공시가격 (원)" value={form.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="비워두면 단지명으로 자동 조회 (저층/중층/고층 평균)" note="입력 시 우선 적용 · 미입력 시 NSDI 자동조회" />
 
           {/* 재건축 전용: 대지지분 */}
           {form.projectType === "reconstruction" && (
@@ -630,10 +630,15 @@ export default function ReportTestClient() {
           </span>
         </div>
 
+        {form.projectType !== "reconstruction" && (
+          <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700 font-medium">
+            🔒 재개발 분석은 준비 중입니다. 재건축 구역을 선택해주세요.
+          </div>
+        )}
         <button
           type="submit"
-          disabled={loading}
-          className="rounded-xl bg-blue-600 text-white font-bold py-3.5 hover:bg-blue-700 transition-colors disabled:opacity-60 text-base"
+          disabled={loading || form.projectType !== "reconstruction"}
+          className="rounded-xl bg-blue-600 text-white font-bold py-3.5 hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-base"
         >
           {loading ? "계산 중..." : "3가지 시나리오 분석 실행 →"}
         </button>

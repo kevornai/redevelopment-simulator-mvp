@@ -11,16 +11,18 @@ import type { MarketData, ConstructionCostData, RateData } from './types';
 import { fetchRates, RATE_FALLBACK } from './ecos';
 import { CONSTRUCTION_COST_FALLBACK } from './kosis';
 import { fetchLocalPrice } from './molit';
-import { estimateFromOfficialPrice } from './nsdi';
+import { estimateFromOfficialPrice, fetchPublicPriceByName } from './nsdi';
 import { createClient } from '@supabase/supabase-js';
 
 interface FetchMarketDataOptions {
   lawdCd?: string | null;
   desiredPyung?: number;
   officialPrice?: number | null;
+  /** 단지명 — 공시가격 미입력 시 NSDI 자동 조회에 사용 */
+  complexName?: string | null;
 }
 
-/** Supabase market_cache에서 KOSIS 건설공사비 읽기 */
+/** Supabase market_cache에서 KOSIS 건설공사비 읽기 — DB에서 읽으면 fromApi:true */
 async function fetchConstructionCostFromCache(): Promise<ConstructionCostData> {
   try {
     const supabase = createClient(
@@ -32,7 +34,8 @@ async function fetchConstructionCostFromCache(): Promise<ConstructionCostData> {
       .select('value, fetched_at')
       .eq('key', 'construction_cost')
       .single();
-    if (data?.value) return { ...data.value, fromApi: data.value.fromApi ?? false };
+    // DB에서 읽은 값은 항상 활성 (수동입력이든 KOSIS든 캐시된 값)
+    if (data?.value) return { ...data.value, fromApi: true };
   } catch { /* fallback */ }
   return CONSTRUCTION_COST_FALLBACK;
 }
@@ -63,12 +66,13 @@ async function fetchRatesWithCache(apiKey: string): Promise<RateData> {
 }
 
 export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promise<MarketData> {
-  const { lawdCd, desiredPyung = 84, officialPrice } = opts;
+  const { lawdCd, desiredPyung = 84, officialPrice, complexName } = opts;
 
   const ecosKey = process.env.ECOS_API_KEY ?? '';
   const molitKey = process.env.MOLIT_API_KEY ?? '';
+  const nsdiKey = process.env.NSDI_API_KEY ?? '';
 
-  // 금리(ECOS 직접 or 캐시) + 공사비(DB 캐시) 병렬 조회
+  // 금리(ECOS) + 공사비(DB캐시) 병렬 조회
   const [rates, constructionCost] = await Promise.all([
     ecosKey ? fetchRatesWithCache(ecosKey) : Promise.resolve(RATE_FALLBACK),
     fetchConstructionCostFromCache(),
@@ -82,9 +86,15 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     else console.warn('[market-data] MOLIT 실패:', result.error);
   }
 
-  const publicPrice = officialPrice && officialPrice > 0
-    ? estimateFromOfficialPrice(officialPrice)
-    : null;
+  // 공시가격: 입력값 있으면 그대로, 없으면 단지명으로 NSDI 자동 조회
+  let publicPrice = null;
+  if (officialPrice && officialPrice > 0) {
+    publicPrice = estimateFromOfficialPrice(officialPrice);
+  } else if (complexName && nsdiKey) {
+    const result = await fetchPublicPriceByName(nsdiKey, complexName);
+    if (result.data) publicPrice = result.data;
+    else console.warn('[market-data] NSDI 자동조회 실패:', result.error);
+  }
 
   return { rates, constructionCost, localPrice, publicPrice, fetchedAt: new Date().toISOString() };
 }

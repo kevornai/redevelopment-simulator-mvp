@@ -263,6 +263,7 @@ export async function calculateAnalysis(
     lawdCd: z.lawd_cd ?? undefined,
     desiredPyung: input.desiredPyung,
     officialPrice: input.officialValuation,
+    complexName: z.zone_name ?? undefined,
   });
 
   // API 데이터로 Zone 상수 오버라이드
