@@ -12,7 +12,7 @@
 
 import type { ApiResult, ApartmentTransaction, LocalPriceData } from './types';
 
-const MOLIT_BASE = 'http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev';
+const MOLIT_BASE = 'https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev';
 
 interface MolitItem {
   거래금액: string;   // "150,000" (만원, 쉼표 포함)

@@ -665,18 +665,19 @@ export default function ReportTestClient() {
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {(
                   [
-                    { label: "금리 (ECOS)", active: result.marketDataSources.ratesFromApi },
-                    { label: "공사비지수 (KOSIS)", active: result.marketDataSources.constructionCostFromApi },
-                    { label: "실거래가 (국토부)", active: result.marketDataSources.localPriceFromApi },
-                    { label: "공시가격 (NSDI)", active: result.marketDataSources.publicPriceFromApi },
+                    { label: "금리 (ECOS)", active: result.marketDataSources.ratesFromApi, note: null },
+                    { label: "공사비지수 (KOSIS)", active: result.marketDataSources.constructionCostFromApi, note: "통계청 IP 제한 — 기본값 적용" },
+                    { label: "실거래가 (국토부)", active: result.marketDataSources.localPriceFromApi, note: "lawd_cd 미설정 시 생략" },
+                    { label: "공시가격 (NSDI)", active: result.marketDataSources.publicPriceFromApi, note: "입력값 기반 추정" },
                   ] as const
-                ).map(({ label, active }) => (
+                ).map(({ label, active, note }) => (
                   <span
                     key={label}
-                    className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    title={!active && note ? note : undefined}
+                    className={`text-xs px-2 py-0.5 rounded-full font-medium cursor-default ${
                       active
                         ? "bg-green-100 text-green-700"
-                        : "bg-zinc-100 text-zinc-400 line-through"
+                        : "bg-zinc-100 text-zinc-400"
                     }`}
                   >
                     {active ? "● " : "○ "}{label}

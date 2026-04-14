@@ -39,7 +39,7 @@ export async function GET() {
   try {
     const key = process.env.MOLIT_API_KEY ?? "";
     const params = new URLSearchParams({ serviceKey: key, LAWD_CD: "41130", DEAL_YMD: "202412", numOfRows: "5", pageNo: "1" });
-    const res = await fetch(`http://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?${params}`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev?${params}`, { signal: AbortSignal.timeout(5000) });
     const text = await res.text();
     results.molit = { status: res.status, hasItem: text.includes("<item>"), raw: text.slice(0, 300) };
   } catch (e) { results.molit = { error: String(e) }; }
