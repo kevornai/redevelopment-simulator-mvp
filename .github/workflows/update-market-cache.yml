@@ -1,0 +1,19 @@
+name: 시장 데이터 캐시 업데이트 (KOSIS/ECOS)
+
+on:
+  schedule:
+    - cron: '0 1 1 * *'   # 매월 1일 01:00 UTC (한국 10:00)
+  workflow_dispatch:        # 수동 실행 가능
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: KOSIS/ECOS 데이터 업데이트
+        run: |
+          curl -s -X POST \
+            "${{ secrets.APP_URL }}/api/admin/update-market-cache" \
+            -H "Content-Type: application/json" \
+            | tee result.json
+          echo "결과:"
+          cat result.json
