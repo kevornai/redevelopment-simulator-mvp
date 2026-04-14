@@ -195,16 +195,13 @@ function stageRank(stage: string): number {
 }
 
 /**
- * 사업 단계가 아직 도달하지 않은 항목은 DB 플레이스홀더 대신 추정값으로 대체.
- * Excel 임포트 데이터(세대수·구역면적·용적률)를 활용해 역산.
+ * 사업 단계 미도달 항목을 DB 플레이스홀더 대신 추정값으로 대체.
  *
- * B섹션 (project_implementation 미만):
- *   total_floor_area  — 용적률×구역면적 or 세대수×평형 역산
- *   general_sale_area / member_sale_area — 세대수 비율로 배분
- *   p_base (일반분양가) — MOLIT 시세×0.85
+ * 핵심 원칙: B섹션(면적)과 C섹션(종전자산)은 반드시 같은 스케일에서 추정.
+ * → 세대수(existingUnits) 기반으로 통일. 세대수 없으면 아무것도 추정 안 함.
  *
- * C섹션 (management_disposal 미만):
- *   total_appraisal_value — 세대수×공시가×감정평가율 or 구역면적×공시지가 역산
+ * 단가(p_base, 조합원분양가)는 MOLIT 실거래가 or 매수가 기반 지역단가로 추정.
+ * DB 서울 기준 placeholder(p_base 7천만, 조합원 5천만)는 지방 분석에서 비례율 폭주 유발.
  */
 function estimateParamsForStage(
   z: ZoneData,
@@ -214,76 +211,74 @@ function estimateParamsForStage(
   const rank = stageRank(z.project_stage);
   const overrides: Partial<ZoneData> = {};
 
-  // ── B섹션: 사업시행인가 이전 ─────────────────────────────────────────────
-  if (rank < STAGE_RANK.project_implementation) {
-    // 총연면적 추정
-    let estimatedFloorArea = 0;
-    if (z.floor_area_ratio_new && z.floor_area_ratio_new > 0 && z.zone_area_sqm && z.zone_area_sqm > 0) {
-      // 가장 정확: 용적률 × 구역면적 → 지상연면적. 지하층 포함 × 1.3
-      estimatedFloorArea = z.zone_area_sqm * (z.floor_area_ratio_new / 100) * 1.3;
-    } else if (z.planned_units_total && z.planned_units_total > 0) {
-      // 세대수 기반: 전용59㎡→분양85㎡ 환산(×1.44) × 세대수 × 지하층(×1.3)
-      const avgUnitSqm = input.desiredPyung * 3.3058 * 1.44;
-      estimatedFloorArea = z.planned_units_total * avgUnitSqm * 1.3;
-    }
+  // 세대수: 기존 세대수 우선, 없으면 계획 세대수
+  const existingUnits = z.existing_units_total ?? z.planned_units_member ?? 0;
+  if (existingUnits <= 0) return overrides; // 세대수 모르면 추정 불가 → DB 기본값 유지
 
-    if (estimatedFloorArea > 0) {
-      overrides.total_floor_area = estimatedFloorArea;
+  const memberUnits  = z.planned_units_member  ?? 0;
+  const generalUnits = z.planned_units_general ?? 0;
+  const totalUnits   = z.planned_units_total   ?? existingUnits;
 
-      // 지상 연면적 (지하층 제외)에서 분양면적 배분 (분양면적/지상연면적 ≈ 80%)
-      const aboveGround = estimatedFloorArea / 1.3;
-      const totalUnits = z.planned_units_total ?? 0;
-      const memberUnits = z.planned_units_member ?? 0;
-      const generalUnits = z.planned_units_general ?? 0;
+  // 매수가 기반 지역 단가: purchasePrice ÷ desiredPyung = 현재 구역 1평당 시세
+  // (이 구역에서 형성된 가격이므로 지역 물가 반영됨)
+  const localPricePerPyung = input.desiredPyung > 0 ? input.purchasePrice / input.desiredPyung : 0;
 
-      if (totalUnits > 0) {
-        overrides.member_sale_area  = aboveGround * (memberUnits  / totalUnits) * 0.80;
-        overrides.general_sale_area = aboveGround * (generalUnits / totalUnits) * 0.80;
-      } else {
-        // 세대수 비율 모를 때: 조합원 65% / 일반 35% 기본
-        overrides.member_sale_area  = aboveGround * 0.65 * 0.80;
-        overrides.general_sale_area = aboveGround * 0.35 * 0.80;
-      }
-    }
+  const officialVal = input.officialValuation > 0
+    ? input.officialValuation
+    : (market.publicPrice?.officialPrice ?? 0);
+  const landPricePerSqm = (input.admin?.landOfficialPricePerSqm ?? 0) ||
+                          (z.land_official_price_per_sqm ?? 0);
 
-    // 일반분양가(p_base) 추정: MOLIT 실거래가 기반만 사용
-    // neighbor_new_apt_price 역산은 placeholder 오염 위험 → 사용 안 함
-    if (market.localPrice?.fromApi && market.localPrice.medianNewAptPricePerPyung > 0) {
-      overrides.p_base = market.localPrice.medianNewAptPricePerPyung * 0.85;
-    }
-    // MOLIT 없으면 DB default 유지 (p_base는 구역별 수동 입력이 필요)
-  }
-
-  // ── C섹션: 관리처분인가 이전 ─────────────────────────────────────────────
+  // ── C섹션: 총종전자산 감정평가액 ─────────────────────────────────────────
   if (rank < STAGE_RANK.management_disposal) {
-    const existingUnits  = z.existing_units_total ?? z.planned_units_member ?? 0;
-    const officialVal    = input.officialValuation > 0 ? input.officialValuation
-                           : (market.publicPrice?.officialPrice ?? 0);
-    const landPricePerSqm = (input.admin?.landOfficialPricePerSqm ?? 0) ||
-                            (z.land_official_price_per_sqm ?? 0);
-    const landShareSqm   = input.landShareSqm;
-
     let estimatedTotal = 0;
 
-    if (existingUnits > 0 && officialVal > 0) {
-      // 최우선: 세대수 × 사용자 공시가 × 감정평가율
-      // × 0.9 보정: 사용자 단위가 구역 내 평균보다 클 수 있음(소형 세대 많음)
+    if (officialVal > 0) {
+      // 공시가 × 감정평가율 × 세대수 (× 0.9: 사용자 단위가 평균보다 클 수 있음)
       estimatedTotal = existingUnits * officialVal * z.avg_appraisal_rate * 0.9;
-    } else if (existingUnits > 0 && landShareSqm > 0 && landPricePerSqm > 0) {
+    } else if (input.landShareSqm > 0 && landPricePerSqm > 0) {
       // 대지지분 × 개별공시지가 → 토지 감정평가액 × 세대수
-      const landAppraisalPerUnit = (landShareSqm * landPricePerSqm) / 0.65 * 0.90;
-      estimatedTotal = existingUnits * landAppraisalPerUnit;
+      estimatedTotal = existingUnits * (input.landShareSqm * landPricePerSqm) / 0.65 * 0.90;
     } else if (z.zone_area_sqm && z.zone_area_sqm > 0 && landPricePerSqm > 0) {
-      // 구역 전체 토지 공시지가 기반 (개별 데이터 없을 때)
+      // 구역 전체 공시지가 기반
       estimatedTotal = (z.zone_area_sqm * landPricePerSqm) / 0.65 * 0.90;
-    } else if (existingUnits > 0 && input.purchasePrice > 0) {
-      // 최종 fallback: 매수가 ÷ 1.3 × 세대수 (프리미엄 30% 제거 역산)
-      // neighbor_new_apt_price는 placeholder 오염 위험 → 사용 안 함
+    } else {
+      // 최종 fallback: 매수가 ÷ 1.3 × 세대수 (프리미엄 30% 제거)
       estimatedTotal = existingUnits * (input.purchasePrice / 1.3);
     }
 
-    if (estimatedTotal > 0) {
-      overrides.total_appraisal_value = estimatedTotal;
+    if (estimatedTotal > 0) overrides.total_appraisal_value = estimatedTotal;
+  }
+
+  // ── B섹션: 면적 + 단가 (세대수 기반으로만 — zone_area×floor_ratio 금지) ───
+  // zone_area_sqm × floor_area_ratio 경로는 구역마다 편차가 너무 커서
+  // C섹션 추정값(세대수 기반)과 스케일이 맞지 않아 비례율 폭주 유발
+  if (rank < STAGE_RANK.project_implementation) {
+    // 표준 분양면적 85㎡/호 (전용59㎡ 기준) — desiredPyung은 사용자의 희망평형이지
+    // 구역 평균 단위가 아님. desiredPyung 사용 시 소형(17평) 입력에서 면적 과소추정.
+    const AVG_UNIT_SQM = 85;
+    const estimatedFloorArea = totalUnits * AVG_UNIT_SQM * 1.3; // 지하층 포함
+    overrides.total_floor_area = estimatedFloorArea;
+
+    const aboveGround = estimatedFloorArea / 1.3; // 지상연면적
+    if (memberUnits > 0 && totalUnits > 0) {
+      overrides.member_sale_area  = aboveGround * (memberUnits  / totalUnits) * 0.80;
+      overrides.general_sale_area = aboveGround * (generalUnits / totalUnits) * 0.80;
+    } else {
+      overrides.member_sale_area  = aboveGround * 0.65 * 0.80;
+      overrides.general_sale_area = aboveGround * 0.35 * 0.80;
+    }
+
+    // 단가 추정: MOLIT 우선, 없으면 매수가 기반 지역단가
+    // DB 서울 기준값(p_base 7천만, 조합원 5천만)은 지방에서 비례율 폭주 원인
+    if (market.localPrice?.fromApi && market.localPrice.medianNewAptPricePerPyung > 0) {
+      overrides.p_base = market.localPrice.medianNewAptPricePerPyung * 0.85;
+      // 조합원 분양가 = 일반분양가 × 0.85 (통상 15% 할인)
+      overrides.member_sale_price_per_pyung = market.localPrice.medianNewAptPricePerPyung * 0.85 * 0.85;
+    } else if (localPricePerPyung > 0) {
+      // 현재 구축 단가 기반: 신축 일반분양가 ≈ 구축 × 1.7, 조합원 ≈ 구축 × 1.4
+      overrides.p_base = localPricePerPyung * 1.7;
+      overrides.member_sale_price_per_pyung = localPricePerPyung * 1.4;
     }
   }
 
@@ -726,7 +721,7 @@ function computeScenario(
   // Step 21: 단계별 현금흐름
   // ─────────────────────────────────────────────────────────────────────────
   const stageCashFlows = buildStageCashFlows(
-    type, input, z, T, monthsToStart,
+    input, z, T, monthsToStart,
     acquisitionTax, moveOutCost,
     contributionAtConstruction, contributionAtCompletion
   );
@@ -789,7 +784,6 @@ function computeScenario(
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function buildStageCashFlows(
-  type: "optimistic" | "neutral" | "pessimistic",
   input: CalculationInput,
   z: ZoneData,
   T: number,
