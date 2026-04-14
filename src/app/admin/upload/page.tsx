@@ -260,13 +260,18 @@ export default function AdminUploadPage() {
     try {
       const res = await fetch("/api/admin/import-zones", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": "revo-admin-2026" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ zones: selected }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "저장 실패");
       setStatus("done");
-      setResultMsg(`✅ ${data.upserted}개 저장 완료 (${data.skipped}개 스킵)`);
+      setResultMsg(`✅ ${data.upserted}개 저장 완료 — 지도 좌표 채우는 중...`);
+      // 저장 성공 후 자동 지오코딩
+      fetch("/api/admin/geocode-zones", { method: "POST" })
+        .then(r => r.json())
+        .then(d => setResultMsg(`✅ ${data.upserted}개 저장 · 좌표 ${d.success ?? 0}개 채움 완료`))
+        .catch(() => setResultMsg(`✅ ${data.upserted}개 저장 완료 (좌표 채우기 실패)`));
     } catch (e) {
       setStatus("error");
       setResultMsg(`❌ ${e}`);

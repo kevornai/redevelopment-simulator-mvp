@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
   calculateAnalysis,
@@ -9,8 +9,14 @@ import {
   ScenarioResult,
   StageCashFlow,
 } from "@/app/actions/calculate";
-import { zones } from "@/data/zones";
 import type { ZoneMapMeta } from "@/components/map/zone-coords";
+
+interface ZoneListItem {
+  zone_id: string;
+  zone_name: string | null;
+  project_type: string;
+  project_stage: string;
+}
 
 // 카카오 지도 SDK는 브라우저 전용 → SSR 비활성화
 const ZoneMap = dynamic(() => import("@/components/map/ZoneMap"), { ssr: false });
@@ -385,9 +391,25 @@ function ComparisonTable({ result }: { result: CalculationResult }) {
 // 메인 컴포넌트
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RECONSTRUCTION_ZONES = new Set(["banpo", "gaepo", "gaepo4", "dunchon", "chamsil", "gwacheon", "gwacheon1", "gwacheon2"]);
-
 export default function ReportTestClient() {
+  const [dbZones, setDbZones] = useState<ZoneListItem[]>([]);
+
+  useEffect(() => {
+    fetch("/api/admin/zones-list")
+      .then((r) => r.json())
+      .then((d) => { if (d.zones) setDbZones(d.zones); })
+      .catch(() => {});
+  }, []);
+
+  function isReconstruction(zoneId: string) {
+    const z = dbZones.find((z) => z.zone_id === zoneId);
+    return z ? z.project_type === "reconstruction" : false;
+  }
+
+  function getZoneName(zoneId: string) {
+    return dbZones.find((z) => z.zone_id === zoneId)?.zone_name ?? zoneId;
+  }
+
   const [form, setForm] = useState<CalculationInput>({
     zoneId: "banpo",
     projectType: "reconstruction",
@@ -406,24 +428,24 @@ export default function ReportTestClient() {
   const [activeTab, setActiveTab] = useState<"cards" | "table">("cards");
 
   function handleZoneChange(zoneId: string) {
-    const isRecon = RECONSTRUCTION_ZONES.has(zoneId);
+    const recon = isReconstruction(zoneId);
     setForm((prev) => ({
       ...prev,
       zoneId,
-      projectType: isRecon ? "reconstruction" : "redevelopment",
-      propertyType: isRecon ? "apartment" : "villa",
+      projectType: recon ? "reconstruction" : "redevelopment",
+      propertyType: recon ? "apartment" : "villa",
     }));
   }
 
   // 지도 핀 클릭 시: 구역 변경 + 등록된 기본값 자동 채움
   const handleMapSelect = useCallback(
     (zoneId: string, defaults?: ZoneMapMeta["defaultValues"]) => {
-      const isRecon = RECONSTRUCTION_ZONES.has(zoneId);
+      const recon = isReconstruction(zoneId);
       setForm((prev) => ({
         ...prev,
         zoneId,
-        projectType: isRecon ? "reconstruction" : "redevelopment",
-        propertyType: isRecon ? "apartment" : "villa",
+        projectType: recon ? "reconstruction" : "redevelopment",
+        propertyType: recon ? "apartment" : "villa",
         ...(defaults?.purchasePrice    && { purchasePrice:    defaults.purchasePrice }),
         ...(defaults?.officialValuation && { officialValuation: defaults.officialValuation }),
         ...(defaults?.landShareSqm     && { landShareSqm:     defaults.landShareSqm }),
@@ -477,7 +499,7 @@ export default function ReportTestClient() {
           <div className="flex items-center gap-2 text-sm">
             <span className="text-zinc-400">선택된 구역:</span>
             <span className="font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg">
-              {zones[form.zoneId] ?? form.zoneId}
+              {getZoneName(form.zoneId)}
             </span>
             <span className={`text-xs px-2 py-0.5 rounded-full ${
               form.projectType === "reconstruction"
@@ -512,24 +534,38 @@ export default function ReportTestClient() {
               onChange={(e) => handleZoneChange(e.target.value)}
               className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <optgroup label="✅ 재건축 아파트 (서울 강남권)">
-                {["banpo","gaepo","gaepo4","dunchon","chamsil","seocho","heukseok9"].map(id => (
-                  <option key={id} value={id}>{zones[id]}</option>
-                ))}
-              </optgroup>
-              <optgroup label="✅ 재건축 아파트 (경기도)">
-                {["gwacheon","gwacheon1","gwacheon2"].map(id => (
-                  <option key={id} value={id}>{zones[id]}</option>
-                ))}
-              </optgroup>
-              <optgroup label="🔒 재개발 빌라 (준비중)">
-                {["hannam3","hannam2","hannam4","hannam5","noryangjin1","noryangjin2","noryangjin3","noryangjin5","heukseok2","heukseok3","singil1","singil4","singil5","singil6","dapsimni","wangsimni","majang","seongsu","ahyeon","mapo","gajwa","yeonsinnae"].map(id => (
-                  <option key={id} value={id} disabled>{zones[id] ?? id} (준비중)</option>
-                ))}
-              </optgroup>
+              {dbZones.length === 0 && (
+                <option value="">불러오는 중...</option>
+              )}
+              {(() => {
+                const recons = dbZones.filter(z => z.project_type === "reconstruction");
+                const redevs = dbZones.filter(z => z.project_type === "redevelopment");
+                return (
+                  <>
+                    {recons.length > 0 && (
+                      <optgroup label="✅ 재건축">
+                        {recons.map(z => (
+                          <option key={z.zone_id} value={z.zone_id}>
+                            {z.zone_name ?? z.zone_id}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {redevs.length > 0 && (
+                      <optgroup label="🔒 재개발 (준비중)">
+                        {redevs.map(z => (
+                          <option key={z.zone_id} value={z.zone_id} disabled>
+                            {z.zone_name ?? z.zone_id} (준비중)
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                );
+              })()}
             </select>
             <p className="text-xs text-zinc-400">
-              현재 DB 데이터: 반포주공1단지(재건축) — 나머지 구역은 관리자 입력 후 활성화
+              총 {dbZones.filter(z => z.project_type === "reconstruction").length}개 재건축 구역 · DB 실시간 연동
             </p>
           </div>
 
