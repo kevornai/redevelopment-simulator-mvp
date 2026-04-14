@@ -15,15 +15,13 @@ import type { ApiResult, ApartmentTransaction, LocalPriceData } from './types';
 const MOLIT_BASE = 'https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev';
 
 interface MolitItem {
-  거래금액: string;   // "150,000" (만원, 쉼표 포함)
-  전용면적: string;   // "84.51"
-  층: string;
-  건축년도: string;
-  아파트: string;
-  계약년도?: string;
-  계약월?: string;
-  년?: string;
-  월?: string;
+  dealAmount: string;  // "34,700" (만원, 쉼표 포함)
+  excluUseAr: string;  // "84.51" (전용면적 ㎡)
+  floor: string;
+  buildYear: string;
+  aptNm: string;
+  dealYear?: string;
+  dealMonth?: string;
 }
 
 interface MolitResponse {
@@ -80,13 +78,13 @@ async function fetchMonthTransactions(
       return m ? m[1].trim() : '';
     };
     items.push({
-      거래금액: get('거래금액'),
-      전용면적: get('전용면적'),
-      층: get('층'),
-      건축년도: get('건축년도'),
-      아파트: get('아파트'),
-      년: get('년'),
-      월: get('월'),
+      dealAmount: get('dealAmount'),
+      excluUseAr: get('excluUseAr'),
+      floor: get('floor'),
+      buildYear: get('buildYear'),
+      aptNm: get('aptNm'),
+      dealYear: get('dealYear'),
+      dealMonth: get('dealMonth'),
     });
   }
   return items;
@@ -165,33 +163,33 @@ export async function fetchLocalPrice(
     for (const items of batchResults) {
       const monthPrices: number[] = [];
       for (const item of items) {
-        const price = parsePrice(item.거래금액);
-        const areaSqm = parseArea(item.전용면적);
+        const price = parsePrice(item.dealAmount);
+        const areaSqm = parseArea(item.excluUseAr);
         if (price <= 0 || areaSqm <= 0) continue;
 
         // 단지명 필터 — 있으면 해당 단지만
-        if (normalizedComplex && item.아파트) {
-          const itemName = item.아파트.replace(/[()（）\[\]]/g, '').replace(/\s+/g, '').toLowerCase();
+        if (normalizedComplex && item.aptNm) {
+          const itemName = item.aptNm.replace(/[()（）\[\]]/g, '').replace(/\s+/g, '').toLowerCase();
           if (!itemName.includes(normalizedComplex) && !normalizedComplex.includes(itemName)) continue;
         }
 
-        const buildYear = parseInt(item.건축년도 || '0', 10);
+        const buildYear = parseInt(item.buildYear || '0', 10);
 
         // newAptOnly 모드: 신축(5년 이내)만 포함 — 구축 오염 방지
         if (newAptOnly && buildYear > 0 && buildYear < newAptCutoffYear) continue;
 
         const pyung = sqmToPyung(areaSqm);
         const pricePerPyung = price / pyung;
-        const dealYm = (item.년 || '') + (item.월 || '').padStart(2, '0');
+        const dealYm = (item.dealYear || '') + (item.dealMonth || '').padStart(2, '0');
 
         allTx.push({
           price,
           area: areaSqm,
           pricePerPyung,
           dealDate: dealYm,
-          floor: parseInt(item.층 || '0', 10),
+          floor: parseInt(item.floor || '0', 10),
           buildYear,
-          aptName: item.아파트 || '',
+          aptName: item.aptNm || '',
         });
         monthPrices.push(pricePerPyung);
       }
