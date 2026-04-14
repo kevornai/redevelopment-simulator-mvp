@@ -44,7 +44,7 @@ const STAGE_META: Record<string, { label: string; color: string; textColor: stri
 };
 
 interface ZoneMapProps {
-  onSelect: (zoneId: string, defaults?: ZoneMapMeta["defaultValues"]) => void;
+  onSelect: (zoneId: string, projectType: string, defaults?: ZoneMapMeta["defaultValues"]) => void;
   selectedZoneId: string;
 }
 
@@ -141,7 +141,7 @@ export default function ZoneMap({ onSelect, selectedZoneId }: ZoneMapProps) {
             marker.setMap(null);
 
             if (isActive) {
-              el.addEventListener("click", () => onSelect(zone.zone_id));
+              el.addEventListener("click", () => onSelect(zone.zone_id, zone.project_type));
             }
           });
         } catch (e) {
