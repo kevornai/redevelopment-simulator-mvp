@@ -438,9 +438,10 @@ export default function ReportTestClient() {
   }
 
   // 지도 핀 클릭 시: 구역 변경 + 등록된 기본값 자동 채움
+  // dbZones를 dependency에 포함해야 stale closure 방지
   const handleMapSelect = useCallback(
     (zoneId: string, defaults?: ZoneMapMeta["defaultValues"]) => {
-      const recon = isReconstruction(zoneId);
+      const recon = dbZones.find((z) => z.zone_id === zoneId)?.project_type === "reconstruction";
       setForm((prev) => ({
         ...prev,
         zoneId,
@@ -451,10 +452,9 @@ export default function ReportTestClient() {
         ...(defaults?.landShareSqm     && { landShareSqm:     defaults.landShareSqm }),
         ...(defaults?.desiredPyung     && { desiredPyung:     defaults.desiredPyung }),
       }));
-      // 폼으로 스크롤
       document.getElementById("analysis-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
     },
-    [],
+    [dbZones],
   );
 
   async function handleSubmit(e: React.FormEvent) {
