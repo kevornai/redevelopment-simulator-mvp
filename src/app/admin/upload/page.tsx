@@ -269,7 +269,8 @@ export default function AdminUploadPage() {
         const d = await res.json();
         totalDone += d.success ?? 0;
         setGeoStatus({ geocoding: !d.done, done: totalDone, remaining: d.remaining ?? 0 });
-        if (d.done) break;
+        // 진행 없으면 중단 (주소 없는 구역은 geocoding 불가)
+        if (d.done || d.success === 0) break;
       } catch {
         break;
       }
