@@ -290,8 +290,8 @@ export default function AdminUploadPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "저장 실패");
       setStatus("done");
-      setResultMsg(`✅ ${data.upserted}개 저장 완료`);
-      runGeocoding();
+      setResultMsg(`✅ ${data.upserted}개 저장 완료 · 좌표 ${data.geocoded ?? 0}개 반영 (지도 반영)`);
+      setGeoStatus(null);
     } catch (e) {
       setStatus("error");
       setResultMsg(`❌ ${e}`);

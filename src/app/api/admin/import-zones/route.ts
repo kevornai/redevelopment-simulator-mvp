@@ -1,11 +1,27 @@
 /**
  * 관리자 전용 구역 일괄 임포트 API
  * POST /api/admin/import-zones
- * 배치 upsert — 500건도 3~5초 내 완료
+ * 배치 upsert + 병렬 지오코딩 (주소 → 좌표 즉시 반영)
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+
+const KAKAO_REST_KEY = process.env.KAKAO_REST_API_KEY ?? "";
+
+async function geocode(address: string): Promise<{ lat: number; lng: number } | null> {
+  if (!KAKAO_REST_KEY || !address.trim()) return null;
+  try {
+    const res = await fetch(
+      `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(address)}`,
+      { headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` }, signal: AbortSignal.timeout(3000) }
+    );
+    const json = await res.json();
+    const doc = json.documents?.[0];
+    if (!doc) return null;
+    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
+  } catch { return null; }
+}
 
 const DEFAULT_ROW = {
   avg_appraisal_rate: 1.3,
@@ -92,58 +108,78 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "zones 배열이 비어있습니다." }, { status: 400 });
   }
 
+  // 주소 → 좌표 병렬 지오코딩 (50개씩 묶어서)
+  const coordMap = new Map<string, { lat: number; lng: number } | null>();
+  const GEO_BATCH = 50;
+  for (let i = 0; i < zones.length; i += GEO_BATCH) {
+    const batch = zones.slice(i, i + GEO_BATCH);
+    const results = await Promise.allSettled(
+      batch.map((z) => geocode(z.address))
+    );
+    results.forEach((r, idx) => {
+      const zoneId = batch[idx].zoneId;
+      coordMap.set(zoneId, r.status === "fulfilled" ? r.value : null);
+    });
+  }
+
   const supabase = createAdminClient();
 
-  // 전체를 upsert 레코드로 변환 (지오코딩 없이 — 좌표는 별도로 나중에 채움)
-  const records = zones.map((zone) => ({
-    ...DEFAULT_ROW,
-    zone_id: zone.zoneId,
-    zone_name: zone.name,
-    sigungu: zone.region || null,
-    project_type: zone.projectType,
-    project_stage: zone.projectStage,
-    lawd_cd: zone.lawdCd || null,
-    avg_appraisal_rate: zone.projectType === "reconstruction" ? 1.05 : 1.3,
-    updated_at: new Date().toISOString(),
-    // 상세 필드
-    zone_area_sqm: zone.zone_area_sqm ?? null,
-    existing_building_year: zone.existing_building_year ?? null,
-    existing_units_total: zone.existing_units_total ?? null,
-    planned_units_total: zone.planned_units_total ?? null,
-    planned_units_member: zone.planned_units_member ?? null,
-    planned_units_general: zone.planned_units_general ?? null,
-    planned_units_rent: zone.planned_units_rent ?? null,
-    new_units_sale_total: zone.new_units_sale_total ?? null,
-    new_units_sale_u40: zone.new_units_sale_u40 ?? null,
-    new_units_sale_40_60: zone.new_units_sale_40_60 ?? null,
-    new_units_sale_60_85: zone.new_units_sale_60_85 ?? null,
-    new_units_sale_85_135: zone.new_units_sale_85_135 ?? null,
-    new_units_sale_o135: zone.new_units_sale_o135 ?? null,
-    new_units_rent_total: zone.new_units_rent_total ?? null,
-    floor_area_ratio_existing: zone.floor_area_ratio_existing ?? null,
-    floor_area_ratio_new: zone.floor_area_ratio_new ?? null,
-    land_owners_count: zone.land_owners_count ?? null,
-    association_members_count: zone.association_members_count ?? null,
-    project_period_start: zone.project_period_start ?? null,
-    project_period_end: zone.project_period_end ?? null,
-    basic_plan_date: zone.basic_plan_date ?? null,
-    zone_designation_date: zone.zone_designation_date ?? null,
-    zone_designation_change_date: zone.zone_designation_change_date ?? null,
-    promotion_committee_date: zone.promotion_committee_date ?? null,
-    safety_inspection_grade: zone.safety_inspection_grade ?? null,
-    association_approval_date: zone.association_approval_date ?? null,
-    project_implementation_date: zone.project_implementation_date ?? null,
-    management_disposal_date: zone.management_disposal_date ?? null,
-    construction_start_date: zone.construction_start_date ?? null,
-    general_sale_date: zone.general_sale_date ?? null,
-    completion_date: zone.completion_date ?? null,
-    project_operator: zone.project_operator ?? null,
-  }));
+  const records = zones.map((zone) => {
+    const coords = coordMap.get(zone.zoneId);
+    return {
+      ...DEFAULT_ROW,
+      zone_id: zone.zoneId,
+      zone_name: zone.name,
+      sigungu: zone.region || null,
+      project_type: zone.projectType,
+      project_stage: zone.projectStage,
+      lawd_cd: zone.lawdCd || null,
+      avg_appraisal_rate: zone.projectType === "reconstruction" ? 1.05 : 1.3,
+      updated_at: new Date().toISOString(),
+      // 좌표 (주소로 지오코딩)
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
+      // 상세 필드
+      zone_area_sqm: zone.zone_area_sqm ?? null,
+      existing_building_year: zone.existing_building_year ?? null,
+      existing_units_total: zone.existing_units_total ?? null,
+      planned_units_total: zone.planned_units_total ?? null,
+      planned_units_member: zone.planned_units_member ?? null,
+      planned_units_general: zone.planned_units_general ?? null,
+      planned_units_rent: zone.planned_units_rent ?? null,
+      new_units_sale_total: zone.new_units_sale_total ?? null,
+      new_units_sale_u40: zone.new_units_sale_u40 ?? null,
+      new_units_sale_40_60: zone.new_units_sale_40_60 ?? null,
+      new_units_sale_60_85: zone.new_units_sale_60_85 ?? null,
+      new_units_sale_85_135: zone.new_units_sale_85_135 ?? null,
+      new_units_sale_o135: zone.new_units_sale_o135 ?? null,
+      new_units_rent_total: zone.new_units_rent_total ?? null,
+      floor_area_ratio_existing: zone.floor_area_ratio_existing ?? null,
+      floor_area_ratio_new: zone.floor_area_ratio_new ?? null,
+      land_owners_count: zone.land_owners_count ?? null,
+      association_members_count: zone.association_members_count ?? null,
+      project_period_start: zone.project_period_start ?? null,
+      project_period_end: zone.project_period_end ?? null,
+      basic_plan_date: zone.basic_plan_date ?? null,
+      zone_designation_date: zone.zone_designation_date ?? null,
+      zone_designation_change_date: zone.zone_designation_change_date ?? null,
+      promotion_committee_date: zone.promotion_committee_date ?? null,
+      safety_inspection_grade: zone.safety_inspection_grade ?? null,
+      association_approval_date: zone.association_approval_date ?? null,
+      project_implementation_date: zone.project_implementation_date ?? null,
+      management_disposal_date: zone.management_disposal_date ?? null,
+      construction_start_date: zone.construction_start_date ?? null,
+      general_sale_date: zone.general_sale_date ?? null,
+      completion_date: zone.completion_date ?? null,
+      project_operator: zone.project_operator ?? null,
+    };
+  });
 
   // 100건씩 배치 upsert
   const BATCH = 100;
   let upserted = 0;
   let skipped = 0;
+  const geocoded = [...coordMap.values()].filter(Boolean).length;
 
   for (let i = 0; i < records.length; i += BATCH) {
     const batch = records.slice(i, i + BATCH);
@@ -153,7 +189,6 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error("batch upsert error:", error);
-      // 첫 번째 에러는 즉시 반환해서 원인 파악
       if (upserted === 0 && skipped === 0) {
         return NextResponse.json({ error: error.message, detail: error.details, hint: error.hint, code: error.code }, { status: 500 });
       }
@@ -163,5 +198,5 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ upserted, skipped, total: zones.length });
+  return NextResponse.json({ upserted, skipped, geocoded, total: zones.length });
 }
