@@ -153,6 +153,10 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error("batch upsert error:", error);
+      // 첫 번째 에러는 즉시 반환해서 원인 파악
+      if (upserted === 0 && skipped === 0) {
+        return NextResponse.json({ error: error.message, detail: error.details, hint: error.hint, code: error.code }, { status: 500 });
+      }
       skipped += batch.length;
     } else {
       upserted += batch.length;
