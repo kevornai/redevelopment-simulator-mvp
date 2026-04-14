@@ -860,11 +860,33 @@ export default function ReportTestClient() {
                 계산 {new Date(result.calculatedAt).toLocaleTimeString("ko-KR")}
               </p>
               {/* 실거래가 미확인 경고 */}
-              {!result.marketDataSources.localPriceFromApi && (
-                <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700 font-medium">
-                  ⚠️ 인근 실거래가를 가져오지 못했습니다. 아래 <strong>관리자 입력값 → 인근 신축 현재 시세</strong>를 직접 입력해야 수익 계산이 정확합니다.
+              {!result.marketDataSources.nearbyNewAptFromApi && (
+                <div className="mt-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 font-medium">
+                  🚨 인근 신축 시세 조회 실패 — p_base/peak_local이 DB 기본값(서울 기준)으로 계산됨. 비례율 왜곡 가능성 높음.
                 </div>
               )}
+              {/* 🔍 디버그 패널 */}
+              <details className="mt-2">
+                <summary className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-600">🔍 계산 투입값 (디버그)</summary>
+                <div className="mt-1 rounded-lg bg-zinc-50 border border-zinc-200 p-3 font-mono text-xs text-zinc-600 grid grid-cols-2 gap-x-4 gap-y-1">
+                  <span className="text-zinc-400">lawd_cd (DB)</span><span className={result.debugParams.lawd_cd ? "text-zinc-800" : "text-red-500"}>{result.debugParams.lawd_cd ?? "null ❌"}</span>
+                  <span className="text-zinc-400">bjd_code (DB)</span><span className={result.debugParams.bjd_code ? "text-zinc-800" : "text-red-500"}>{result.debugParams.bjd_code ?? "null ❌"}</span>
+                  <span className="text-zinc-400">effectiveLawdCd</span><span className={result.debugParams.effectiveLawdCd ? "text-zinc-800" : "text-red-500"}>{result.debugParams.effectiveLawdCd ?? "null ❌"}</span>
+                  <span className="text-zinc-400">existingUnits</span><span className={result.debugParams.existingUnits > 0 ? "text-zinc-800" : "text-red-500"}>{result.debugParams.existingUnits} {result.debugParams.existingUnits === 0 ? "❌ 추정 안 함" : "✓"}</span>
+                  <span className="text-zinc-400">plannedUnitsMember</span><span>{result.debugParams.plannedUnitsMember ?? "null"}</span>
+                  <span className="text-zinc-400">nearbyOk</span><span className={result.debugParams.nearbyOk ? "text-green-600" : "text-red-500"}>{result.debugParams.nearbyOk ? "✓ true" : "✗ false"}</span>
+                  <span className="text-zinc-400">molitOk</span><span className={result.debugParams.molitOk ? "text-green-600" : "text-red-500"}>{result.debugParams.molitOk ? "✓ true" : "✗ false"}</span>
+                  <span className="text-zinc-400">stageRank</span><span>{result.debugParams.projectStageRank}</span>
+                  <span className="text-zinc-400">total_appraisal_value</span><span>{(result.debugParams.total_appraisal_value / 1e8).toFixed(1)}억</span>
+                  <span className="text-zinc-400">total_floor_area</span><span>{result.debugParams.total_floor_area.toLocaleString()}㎡</span>
+                  <span className="text-zinc-400">member_sale_area</span><span>{result.debugParams.member_sale_area.toLocaleString()}㎡</span>
+                  <span className="text-zinc-400">general_sale_area</span><span>{result.debugParams.general_sale_area.toLocaleString()}㎡</span>
+                  <span className="text-zinc-400">p_base</span><span className={result.debugParams.p_base > 50_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.p_base / 1e4).toFixed(0)}만/평 {result.debugParams.p_base > 50_000_000 ? "⚠️ 서울값?" : ""}</span>
+                  <span className="text-zinc-400">member_sale_price</span><span className={result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.member_sale_price_per_pyung / 1e4).toFixed(0)}만/평 {result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "⚠️ 서울값?" : ""}</span>
+                  <span className="text-zinc-400">peak_local</span><span>{(result.debugParams.peak_local / 1e8).toFixed(2)}억</span>
+                  <span className="text-zinc-400">neighbor_new_apt</span><span>{(result.debugParams.neighbor_new_apt_price / 1e8).toFixed(2)}억</span>
+                </div>
+              </details>
               {/* API 데이터 소스 배지 */}
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {(
@@ -872,6 +894,7 @@ export default function ReportTestClient() {
                     { label: "금리 (ECOS)", active: result.marketDataSources.ratesFromApi, note: null },
                     { label: "공사비지수 (KOSIS)", active: result.marketDataSources.constructionCostFromApi, note: "통계청 IP 제한 — 기본값 적용" },
                     { label: "실거래가 (국토부)", active: result.marketDataSources.localPriceFromApi, note: "lawd_cd 미설정 시 생략" },
+                    { label: "인근 신축 시세", active: result.marketDataSources.nearbyNewAptFromApi, note: "lawd_cd 오류 시 실패" },
                     { label: "공시가격 (NSDI)", active: result.marketDataSources.publicPriceFromApi, note: "입력값 기반 추정" },
                   ] as const
                 ).map(({ label, active, note }) => (

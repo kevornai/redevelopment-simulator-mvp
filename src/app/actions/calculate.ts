@@ -128,7 +128,27 @@ export interface CalculationResult {
     constructionCostFromApi: boolean;
     localPriceFromApi: boolean;
     publicPriceFromApi: boolean;
+    nearbyNewAptFromApi: boolean;
     fetchedAt: string;
+  };
+  /** 계산에 실제 투입된 값 — 디버그용 */
+  debugParams: {
+    lawd_cd: string | null;
+    bjd_code: string | null;
+    effectiveLawdCd: string | null;
+    existingUnits: number;
+    plannedUnitsMember: number | null;
+    total_appraisal_value: number;
+    total_floor_area: number;
+    member_sale_area: number;
+    general_sale_area: number;
+    p_base: number;
+    member_sale_price_per_pyung: number;
+    peak_local: number;
+    neighbor_new_apt_price: number;
+    nearbyOk: boolean;
+    molitOk: boolean;
+    projectStageRank: number;
   };
   calculatedAt: string;
 }
@@ -472,7 +492,26 @@ export async function calculateAnalysis(
         constructionCostFromApi: marketData.constructionCost.fromApi,
         localPriceFromApi: marketData.localPrice?.fromApi ?? false,
         publicPriceFromApi: marketData.publicPrice?.fromApi ?? false,
+        nearbyNewAptFromApi: marketData.nearbyNewAptPrice?.fromApi ?? false,
         fetchedAt: marketData.fetchedAt,
+      },
+      debugParams: {
+        lawd_cd: baseZone.lawd_cd,
+        bjd_code: baseZone.bjd_code,
+        effectiveLawdCd: (baseZone.bjd_code?.slice(0, 5)) || baseZone.lawd_cd || null,
+        existingUnits: baseZone.existing_units_total ?? baseZone.planned_units_member ?? 0,
+        plannedUnitsMember: baseZone.planned_units_member,
+        total_appraisal_value: resolvedZ.total_appraisal_value,
+        total_floor_area: resolvedZ.total_floor_area,
+        member_sale_area: resolvedZ.member_sale_area,
+        general_sale_area: resolvedZ.general_sale_area,
+        p_base: resolvedZ.p_base,
+        member_sale_price_per_pyung: resolvedZ.member_sale_price_per_pyung,
+        peak_local: resolvedZ.peak_local,
+        neighbor_new_apt_price: resolvedZ.neighbor_new_apt_price,
+        nearbyOk: marketData.nearbyNewAptPrice?.fromApi === true,
+        molitOk: marketData.localPrice?.fromApi === true,
+        projectStageRank: stageRank(baseZone.project_stage),
       },
       calculatedAt: new Date().toISOString(),
     },
