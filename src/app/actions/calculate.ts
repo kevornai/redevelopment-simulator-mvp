@@ -477,6 +477,22 @@ export async function calculateAnalysis(
   const neutral     = computeScenario("neutral",     effectiveInput, resolvedZ);
   const pessimistic = computeScenario("pessimistic", effectiveInput, resolvedZ);
 
+  // 산티 체크: 비례율 폭주 또는 분양가 0 감지 시 에러 반환
+  const allScenarios = [optimistic, neutral, pessimistic];
+  const hasBadPropRate = allScenarios.some(
+    (s) => s.proportionalRate > 500 || s.proportionalRate < 0
+  );
+  const hasBadPrice =
+    allScenarios.some((s) => s.appliedGeneralSalePrice <= 0) ||
+    resolvedZ.member_sale_price_per_pyung <= 0;
+  if (hasBadPropRate || hasBadPrice) {
+    return {
+      data: null,
+      error:
+        "계산 오류: 비례율 또는 분양가가 비정상입니다. API 조회 실패로 지역 시세를 반영하지 못했을 수 있습니다. 관리자 수동 검토가 필요합니다.",
+    };
+  }
+
   return {
     data: {
       zoneId: input.zoneId,
@@ -567,9 +583,11 @@ function computeScenario(
   // ─────────────────────────────────────────────────────────────────────────
   let P: number;
   if (type === "optimistic") {
-    P = z.peak_local * 0.95;
+    // peak_local이 유효(p_base 초과)하면 95% 적용, 아니면 p_base 15% 상승 추정
+    P = z.peak_local > z.p_base ? z.peak_local * 0.95 : z.p_base * 1.15;
   } else if (type === "pessimistic") {
-    P = z.p_base * (1 - z.mdd_local);
+    // 낙폭 적용, 최소 p_base의 80% 보장 (극단 시나리오 방지)
+    P = Math.max(z.p_base * 0.8, z.p_base * (1 - z.mdd_local));
   } else {
     P = z.p_base;
   }

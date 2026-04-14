@@ -95,10 +95,7 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
       fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 12, undefined, true),
     ]);
     if (localResult.data) localPrice = localResult.data;
-    else console.warn('[market-data] MOLIT 구역거래가 실패:', localResult.error);
-
     if (nearbyResult.data) nearbyNewAptPrice = nearbyResult.data;
-    else console.warn('[market-data] MOLIT 인근신축 실패:', nearbyResult.error);
   }
 
   // 공시가격: 입력값 있으면 그대로, 없으면 NSDI 자동 조회
@@ -112,7 +109,6 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
       ? await fetchPublicPriceByBjdCode(nsdiKey, bjdCode, complexName)
       : await fetchPublicPriceByName(nsdiKey, complexName);
     if (result.data) publicPrice = result.data;
-    else console.warn('[market-data] NSDI 자동조회 실패:', result.error);
   }
 
   return { rates, constructionCost, localPrice, nearbyNewAptPrice, publicPrice, fetchedAt: new Date().toISOString() };
