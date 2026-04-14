@@ -938,7 +938,7 @@ export default function ReportTestClient() {
                   <span className="text-zinc-400">general_sale_area</span><span>{result.debugParams.general_sale_area.toLocaleString()}㎡</span>
                   <span className="text-zinc-400">p_base</span><span className={result.debugParams.p_base > 50_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.p_base / 1e4).toFixed(0)}만/평 {result.debugParams.p_base > 50_000_000 ? "⚠️ 서울값?" : ""}</span>
                   <span className="text-zinc-400">member_sale_price</span><span className={result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.member_sale_price_per_pyung / 1e4).toFixed(0)}만/평 {result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "⚠️ 서울값?" : ""}</span>
-                  <span className="text-zinc-400">peak_local</span><span>{(result.debugParams.peak_local / 1e8).toFixed(2)}억</span>
+                  <span className="text-zinc-400">peak_local</span><span>{(result.debugParams.peak_local / 1e4).toFixed(0)}만/평</span>
                   <span className="text-zinc-400">neighbor_new_apt</span><span>{(result.debugParams.neighbor_new_apt_price / 1e8).toFixed(2)}억</span>
                 </div>
               </details>

@@ -346,11 +346,12 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
       ? market.localPrice!.medianNewAptPricePerPyung
       : z.p_base);
 
-  // peak_local (역대 최고 시세, 희망평형 기준): 인근 신축 최고가 → 구역 최고가 → 0
+  // peak_local (역대 최고 평당 분양가, 원/평): 인근 신축 최고 평당가 → 구역 최고 평당가 → 0
+  // ※ p_base와 같은 단위(원/평)로 저장해야 computeScenario에서 P로 직접 사용 가능
   const peak_local = nearbyOk && market.nearbyNewAptPrice!.peakPricePerPyung > 0
-    ? market.nearbyNewAptPrice!.peakPricePerPyung * desiredPyung
+    ? market.nearbyNewAptPrice!.peakPricePerPyung
     : (molitOk && market.localPrice!.peakPricePerPyung > 0
-      ? market.localPrice!.peakPricePerPyung * desiredPyung
+      ? market.localPrice!.peakPricePerPyung
       : 0);
 
   // mdd_local (역사적 낙폭률): 신축 시계열 → 구역 시계열 → DB default (낙폭률은 전국 공통이므로 DB도 OK)
