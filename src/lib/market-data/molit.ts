@@ -165,7 +165,7 @@ export async function fetchLocalPrice(
       for (const item of items) {
         const price = parsePrice(item.dealAmount);
         const areaSqm = parseArea(item.excluUseAr);
-        if (price <= 0 || areaSqm <= 0) continue;
+        if (!(price > 0) || !(areaSqm > 0)) continue; // NaN-safe: NaN <= 0 = false이므로 > 0 역조건 사용
 
         // 단지명 필터 — 있으면 해당 단지만
         if (normalizedComplex && item.aptNm) {
