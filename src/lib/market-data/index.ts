@@ -11,7 +11,7 @@ import type { MarketData, ConstructionCostData, RateData } from './types';
 import { fetchRates, RATE_FALLBACK } from './ecos';
 import { CONSTRUCTION_COST_FALLBACK } from './kosis';
 import { fetchLocalPrice } from './molit';
-import { estimateFromOfficialPrice, fetchPublicPriceByName, fetchPublicPriceByBjdCode } from './nsdi';
+import { estimateFromOfficialPrice, fetchPublicPriceByName, fetchPublicPriceByBjdCode, fetchPublicPriceByPnu } from './nsdi';
 import { fetchBuildingFloorArea } from './building-registry';
 import { createClient } from '@supabase/supabase-js';
 
@@ -99,11 +99,6 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
   const molitKey = process.env.MOLIT_API_KEY  ?? '';
   const nsdiKey  = process.env.NSDI_API_KEY   ?? '';
 
-  // bjd_code에서 건축물대장 조회용 코드 파생
-  // bjd_code = 4111313100 → sigunguCd=41113, bjdongCd=13100
-  const sigunguCd = bjdCode?.slice(0, 5) ?? null;
-  const bjdongCd  = bjdCode?.slice(5, 10) ?? null;
-
   // bjdCode 앞 5자리가 lawdCd보다 정확 (Kakao 지오코딩 결과)
   const effectiveLawdCd = (bjdCode?.slice(0, 5)) || lawdCd || null;
 
@@ -129,32 +124,36 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     if (nearbyResult.data) nearbyNewAptPrice = nearbyResult.data;
   }
 
+  // 역지오코딩 선행 (공시가격 PNU + 건축물대장 공용)
+  const kakaoKey = process.env.KAKAO_REST_API_KEY ?? '';
+  const geo = (kakaoKey && lat && lng) ? await reverseGeocode(lat, lng, kakaoKey) : null;
+
   // 공시가격 + 건축물대장 병렬 조회
   let publicPrice = null;
   let buildingFloorArea = null;
 
   await Promise.all([
-    // 공시가격: 입력값 있으면 그대로, 없으면 NSDI 자동 조회
+    // 공시가격: 입력값 → PNU 조회 → bjdCode+단지명 조회 → 단지명만 조회
     (async () => {
       if (officialPrice && officialPrice > 0) {
         publicPrice = estimateFromOfficialPrice(officialPrice);
-      } else if (nsdiKey && complexName) {
-        const result = bjdCode
-          ? await fetchPublicPriceByBjdCode(nsdiKey, bjdCode, complexName)
-          : await fetchPublicPriceByName(nsdiKey, complexName);
+      } else if (nsdiKey) {
+        let result = geo
+          ? await fetchPublicPriceByPnu(nsdiKey, geo.sigunguCd + geo.bjdongCd, geo.bun, geo.ji)
+          : { data: null, error: 'no geo' } as const;
+        if (!result.data && bjdCode && complexName)
+          result = await fetchPublicPriceByBjdCode(nsdiKey, bjdCode, complexName);
+        if (!result.data && complexName)
+          result = await fetchPublicPriceByName(nsdiKey, complexName);
         if (result.data) publicPrice = result.data;
       }
     })(),
 
-    // 건축물대장: 좌표 → 역지오코딩 → bun/ji → 총괄표제부 조회
+    // 건축물대장: 역지오코딩 결과 재사용
     (async () => {
-      const kakaoKey = process.env.KAKAO_REST_API_KEY ?? '';
-      if (molitKey && kakaoKey && lat && lng) {
-        const geo = await reverseGeocode(lat, lng, kakaoKey);
-        if (geo) {
-          const result = await fetchBuildingFloorArea(molitKey, geo.sigunguCd, geo.bjdongCd, geo.bun, geo.ji);
-          if (result.data) buildingFloorArea = result.data;
-        }
+      if (molitKey && geo) {
+        const result = await fetchBuildingFloorArea(molitKey, geo.sigunguCd, geo.bjdongCd, geo.bun, geo.ji);
+        if (result.data) buildingFloorArea = result.data;
       }
     })(),
   ]);

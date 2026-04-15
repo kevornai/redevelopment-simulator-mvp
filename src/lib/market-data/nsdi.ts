@@ -340,6 +340,60 @@ export async function fetchPublicPriceByBjdCode(
   }
 }
 
+/**
+ * PNU(필지고유번호)로 공시가격 조회 — 단지명 불필요, 지역 무관하게 동작
+ * PNU = bjdCode(10) + 산여부(1, 보통 "0") + 본번(4) + 부번(4) = 19자리
+ */
+export async function fetchPublicPriceByPnu(
+  apiKey: string,
+  bjdCode: string,
+  bun: string,
+  ji: string,
+): Promise<ApiResult<PublicPriceData>> {
+  try {
+    const pnuPrefix = `${bjdCode}0${bun.padStart(4, '0')}${(ji || '0').padStart(4, '0')}`;
+    const year = new Date().getFullYear();
+    const realizationRate = getRealizationRate(year);
+
+    const features: NsdiFeature[] = [];
+    for (const yr of [year, year - 1]) {
+      const params = new URLSearchParams({
+        key: apiKey,
+        domain: 'revo-invest.com',
+        service: 'WFS',
+        version: '2.0.0',
+        request: 'GetFeature',
+        typeName: 'getApartHousePrice',
+        output: 'application/json',
+        maxFeatures: '100',
+        cql_filter: `pnu LIKE '${pnuPrefix}%' AND stdYear='${yr}'`,
+      });
+      const res = await fetch(`${NSDI_BASE}?${params}`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) continue;
+      const json: NsdiResponse = await res.json();
+      const found = json.features ?? [];
+      if (found.length > 0) { features.push(...found); break; }
+    }
+
+    if (features.length === 0) return { data: null, error: `NSDI: PNU=${pnuPrefix} 공시가격 없음` };
+
+    const prices = features
+      .map(f => {
+        const p = f.properties?.pblntfPc;
+        return typeof p === 'string' ? parseInt(p.replace(/,/g, ''), 10) : Number(p ?? 0);
+      })
+      .filter(p => p > 0);
+    if (prices.length === 0) return { data: null, error: 'NSDI PNU: 유효 가격 없음' };
+    const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
+    return {
+      data: { officialPrice: Math.round(avg), realizationRate, estimatedAppraisalRate: 0.9 / realizationRate, fromApi: true },
+      error: null,
+    };
+  } catch (err) {
+    return { data: null, error: String(err) };
+  }
+}
+
 /** fallback: 공시가격 직접 입력 시 현실화율만 적용 */
 export function estimateFromOfficialPrice(
   officialPrice: number,
