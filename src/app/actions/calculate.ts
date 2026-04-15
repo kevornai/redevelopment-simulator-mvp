@@ -206,6 +206,8 @@ interface ZoneData {
   planned_units_member: number | null;
   planned_units_general: number | null;
   floor_area_ratio_new: number | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 // ─── 단계 순서 (낮을수록 초기 단계) ───────────────────────────────────────────
@@ -442,6 +444,8 @@ export async function calculateAnalysis(
     desiredPyung: input.desiredPyung,
     officialPrice: input.officialValuation,
     complexName: baseZone.zone_name ?? undefined,
+    lat: baseZone.lat ?? undefined,
+    lng: baseZone.lng ?? undefined,
   });
 
   // Step 2: 단계 미도달 필드 추정 (DB 플레이스홀더 → 역산 추정값)

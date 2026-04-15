@@ -22,6 +22,9 @@ interface FetchMarketDataOptions {
   officialPrice?: number | null;
   /** 단지명 — 공시가격 미입력 시 NSDI 자동 조회에 사용 */
   complexName?: string | null;
+  /** 단지 중심 좌표 — 역지오코딩으로 번지 획득 후 건축물대장 조회에 사용 */
+  lat?: number | null;
+  lng?: number | null;
 }
 
 /** Supabase market_cache에서 KOSIS 건설공사비 읽기 — DB에서 읽으면 fromApi:true */
@@ -67,8 +70,30 @@ async function fetchRatesWithCache(apiKey: string): Promise<RateData> {
   return result.data ?? RATE_FALLBACK;
 }
 
+/** Kakao 역지오코딩으로 좌표 → 법정동코드 + 번지 */
+async function reverseGeocode(lat: number, lng: number, kakaoKey: string): Promise<{ bjdongCd: string; sigunguCd: string; bun: string; ji: string } | null> {
+  try {
+    const headers = { Authorization: `KakaoAK ${kakaoKey}` };
+    const [regionRes, addrRes] = await Promise.all([
+      fetch(`https://dapi.kakao.com/v2/local/geo/coord2regioncode.json?x=${lng}&y=${lat}&input_coord=WGS84`, { headers, signal: AbortSignal.timeout(5000) }),
+      fetch(`https://dapi.kakao.com/v2/local/geo/coord2address.json?x=${lng}&y=${lat}&input_coord=WGS84`, { headers, signal: AbortSignal.timeout(5000) }),
+    ]);
+    const regionJson = await regionRes.json();
+    const addrJson = await addrRes.json();
+    const region = regionJson.documents?.find((d: { region_type: string }) => d.region_type === 'B');
+    const addr = addrJson.documents?.[0]?.address;
+    if (!region?.code || !addr?.main_address_no) return null;
+    return {
+      sigunguCd: region.code.slice(0, 5),
+      bjdongCd: region.code.slice(5, 10),
+      bun: addr.main_address_no,
+      ji: addr.sub_address_no ?? '0',
+    };
+  } catch { return null; }
+}
+
 export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promise<MarketData> {
-  const { lawdCd, bjdCode, desiredPyung = 84, officialPrice, complexName } = opts;
+  const { lawdCd, bjdCode, desiredPyung = 84, officialPrice, complexName, lat, lng } = opts;
 
   const ecosKey  = process.env.ECOS_API_KEY   ?? '';
   const molitKey = process.env.MOLIT_API_KEY  ?? '';
@@ -121,11 +146,15 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
       }
     })(),
 
-    // 건축물대장: bjd_code + 단지명 있을 때 현재 연면적 조회
+    // 건축물대장: 좌표 → 역지오코딩 → bun/ji → 총괄표제부 조회
     (async () => {
-      if (molitKey && sigunguCd && bjdongCd && complexName) {
-        const result = await fetchBuildingFloorArea(molitKey, sigunguCd, bjdongCd, complexName);
-        if (result.data) buildingFloorArea = result.data;
+      const kakaoKey = process.env.KAKAO_REST_API_KEY ?? '';
+      if (molitKey && kakaoKey && lat && lng) {
+        const geo = await reverseGeocode(lat, lng, kakaoKey);
+        if (geo) {
+          const result = await fetchBuildingFloorArea(molitKey, geo.sigunguCd, geo.bjdongCd, geo.bun, geo.ji);
+          if (result.data) buildingFloorArea = result.data;
+        }
       }
     })(),
   ]);

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BR_BASE = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo";
+const BR_BASE = "https://apis.data.go.kr/1613000/BldRgstHubService/getBrRecapTitleInfo";
 
 export async function GET(req: NextRequest) {
   const key       = process.env.MOLIT_API_KEY ?? "";

@@ -8,7 +8,7 @@
 
 import type { ApiResult } from './types';
 
-const BR_BASE = 'https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo';
+const BR_BASE = 'https://apis.data.go.kr/1613000/BldRgstHubService/getBrRecapTitleInfo';
 
 export interface BuildingFloorData {
   totalFloorArea: number;  // 연면적 합계 (㎡)
@@ -17,20 +17,22 @@ export interface BuildingFloorData {
 }
 
 /**
- * 건축물대장 표제부에서 단지 전체 연면적 조회
+ * 건축물대장 총괄표제부에서 단지 전체 연면적 조회
  *
  * @param serviceKey data.go.kr 인증키 (MOLIT_API_KEY와 동일 포털)
  * @param sigunguCd  시군구코드 5자리 (예: "41113" = 수원시 권선구)
- * @param bjdongCd   법정동코드 5자리 (bjd_code 뒤 5자리, 예: "13100")
- * @param bldNm      건물명 (예: "성일아파트")
+ * @param bjdongCd   법정동코드 5자리 (예: "13100")
+ * @param bun        본번 4자리 (예: "0361")
+ * @param ji         부번 4자리 (예: "0001")
  */
 export async function fetchBuildingFloorArea(
   serviceKey: string,
   sigunguCd: string,
   bjdongCd: string,
-  bldNm: string,
+  bun: string,
+  ji: string,
 ): Promise<ApiResult<BuildingFloorData>> {
-  if (!serviceKey || !sigunguCd || !bjdongCd || !bldNm) {
+  if (!serviceKey || !sigunguCd || !bjdongCd || !bun) {
     return { data: null, error: '필수 파라미터 누락' };
   }
 
@@ -39,8 +41,9 @@ export async function fetchBuildingFloorArea(
       serviceKey,
       sigunguCd,
       bjdongCd,
-      bldNm,
-      numOfRows: '100',
+      bun: bun.padStart(4, '0'),
+      ji: (ji || '0000').padStart(4, '0'),
+      numOfRows: '10',
       pageNo: '1',
     });
 
@@ -58,25 +61,21 @@ export async function fetchBuildingFloorArea(
       return { data: null, error: 'API 키 오류 또는 요청 한도 초과' };
     }
 
-    // <totArea> 파싱 — 동별 연면적 합산
-    const matches = [...text.matchAll(/<totArea>([^<]+)<\/totArea>/g)];
-    if (matches.length === 0) {
-      return { data: null, error: '건축물대장 데이터 없음 (건물명 불일치 가능성)' };
+    // <totArea> 파싱 — 총괄표제부는 단지 1개 레코드
+    const match = text.match(/<totArea>([^<]+)<\/totArea>/);
+    if (!match) {
+      return { data: null, error: '건축물대장 데이터 없음 (번지 불일치 가능성)' };
     }
 
-    const totalFloorArea = matches.reduce(
-      (sum, m) => sum + (parseFloat(m[1].trim()) || 0),
-      0,
-    );
-
+    const totalFloorArea = parseFloat(match[1].trim()) || 0;
     if (totalFloorArea <= 0) {
-      return { data: null, error: 'totArea 합산값 0' };
+      return { data: null, error: 'totArea 값 0' };
     }
 
     return {
       data: {
         totalFloorArea,
-        buildingCount: matches.length,
+        buildingCount: 1,
         fromApi: true,
       },
       error: null,
