@@ -63,6 +63,12 @@ export interface PublicPriceData {
   fromApi: boolean;
 }
 
+export interface BuildingFloorData {
+  totalFloorArea: number;
+  buildingCount: number;
+  fromApi: true;
+}
+
 /** 계산 엔진에 주입되는 시장 데이터 전체 */
 export interface MarketData {
   rates: RateData;
@@ -72,6 +78,8 @@ export interface MarketData {
   /** 구역 인근 신축(5년 이내) 아파트 시세 — p_base/peak_local/neighbor 자동 산출용 */
   nearbyNewAptPrice: LocalPriceData | null;
   publicPrice: PublicPriceData | null;
+  /** 건축물대장 현재 연면적 — total_floor_area 추정 기초 데이터 */
+  buildingFloorArea: BuildingFloorData | null;
   fetchedAt: string;
 }
 

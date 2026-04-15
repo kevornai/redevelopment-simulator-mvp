@@ -148,6 +148,8 @@ export interface CalculationResult {
     neighbor_new_apt_price: number;
     nearbyOk: boolean;
     molitOk: boolean;
+    buildingFloorAreaFromApi: boolean;
+    buildingFloorAreaRaw: number | null;
     projectStageRank: number;
   };
   /** 비정상 값 감지 시 경고 메시지 (결과는 유지) */
@@ -530,6 +532,8 @@ export async function calculateAnalysis(
         neighbor_new_apt_price: resolvedZ.neighbor_new_apt_price,
         nearbyOk: marketData.nearbyNewAptPrice?.fromApi === true,
         molitOk: marketData.localPrice?.fromApi === true,
+        buildingFloorAreaFromApi: marketData.buildingFloorArea?.fromApi === true,
+        buildingFloorAreaRaw: marketData.buildingFloorArea?.totalFloorArea ?? null,
         projectStageRank: stageRank(baseZone.project_stage),
       },
       warnings,

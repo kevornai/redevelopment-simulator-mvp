@@ -12,6 +12,7 @@ import { fetchRates, RATE_FALLBACK } from './ecos';
 import { CONSTRUCTION_COST_FALLBACK } from './kosis';
 import { fetchLocalPrice } from './molit';
 import { estimateFromOfficialPrice, fetchPublicPriceByName, fetchPublicPriceByBjdCode } from './nsdi';
+import { fetchBuildingFloorArea } from './building-registry';
 import { createClient } from '@supabase/supabase-js';
 
 interface FetchMarketDataOptions {
@@ -69,9 +70,14 @@ async function fetchRatesWithCache(apiKey: string): Promise<RateData> {
 export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promise<MarketData> {
   const { lawdCd, bjdCode, desiredPyung = 84, officialPrice, complexName } = opts;
 
-  const ecosKey = process.env.ECOS_API_KEY ?? '';
-  const molitKey = process.env.MOLIT_API_KEY ?? '';
-  const nsdiKey = process.env.NSDI_API_KEY ?? '';
+  const ecosKey  = process.env.ECOS_API_KEY   ?? '';
+  const molitKey = process.env.MOLIT_API_KEY  ?? '';
+  const nsdiKey  = process.env.NSDI_API_KEY   ?? '';
+
+  // bjd_code에서 건축물대장 조회용 코드 파생
+  // bjd_code = 4111313100 → sigunguCd=41113, bjdongCd=13100
+  const sigunguCd = bjdCode?.slice(0, 5) ?? null;
+  const bjdongCd  = bjdCode?.slice(5, 10) ?? null;
 
   // bjdCode 앞 5자리가 lawdCd보다 정확 (Kakao 지오코딩 결과)
   const effectiveLawdCd = (bjdCode?.slice(0, 5)) || lawdCd || null;
@@ -98,20 +104,33 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     if (nearbyResult.data) nearbyNewAptPrice = nearbyResult.data;
   }
 
-  // 공시가격: 입력값 있으면 그대로, 없으면 NSDI 자동 조회
-  // bjdCode(10자리) + 단지명 → 가장 정확
-  // bjdCode 없으면 단지명만으로 검색 (괄호 안 이름 추출 포함)
+  // 공시가격 + 건축물대장 병렬 조회
   let publicPrice = null;
-  if (officialPrice && officialPrice > 0) {
-    publicPrice = estimateFromOfficialPrice(officialPrice);
-  } else if (nsdiKey && complexName) {
-    const result = bjdCode
-      ? await fetchPublicPriceByBjdCode(nsdiKey, bjdCode, complexName)
-      : await fetchPublicPriceByName(nsdiKey, complexName);
-    if (result.data) publicPrice = result.data;
-  }
+  let buildingFloorArea = null;
 
-  return { rates, constructionCost, localPrice, nearbyNewAptPrice, publicPrice, fetchedAt: new Date().toISOString() };
+  await Promise.all([
+    // 공시가격: 입력값 있으면 그대로, 없으면 NSDI 자동 조회
+    (async () => {
+      if (officialPrice && officialPrice > 0) {
+        publicPrice = estimateFromOfficialPrice(officialPrice);
+      } else if (nsdiKey && complexName) {
+        const result = bjdCode
+          ? await fetchPublicPriceByBjdCode(nsdiKey, bjdCode, complexName)
+          : await fetchPublicPriceByName(nsdiKey, complexName);
+        if (result.data) publicPrice = result.data;
+      }
+    })(),
+
+    // 건축물대장: bjd_code + 단지명 있을 때 현재 연면적 조회
+    (async () => {
+      if (molitKey && sigunguCd && bjdongCd && complexName) {
+        const result = await fetchBuildingFloorArea(molitKey, sigunguCd, bjdongCd, complexName);
+        if (result.data) buildingFloorArea = result.data;
+      }
+    })(),
+  ]);
+
+  return { rates, constructionCost, localPrice, nearbyNewAptPrice, publicPrice, buildingFloorArea, fetchedAt: new Date().toISOString() };
 }
 
 export { fetchLocalPrice } from './molit';
