@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchBuildingFloorArea } from "@/lib/market-data/building-registry";
+
+const BR_BASE = "http://apis.data.go.kr/1613000/ArchPmsService_v2/getBrTitleInfo";
 
 export async function GET(req: NextRequest) {
   const key       = process.env.MOLIT_API_KEY ?? "";
@@ -9,6 +10,14 @@ export async function GET(req: NextRequest) {
 
   if (!key) return NextResponse.json({ error: "MOLIT_API_KEY 없음" }, { status: 500 });
 
-  const result = await fetchBuildingFloorArea(key, sigunguCd, bjdongCd, bldNm);
-  return NextResponse.json({ sigunguCd, bjdongCd, bldNm, ...result });
+  const params = new URLSearchParams({ serviceKey: key, sigunguCd, bjdongCd, bldNm, numOfRows: "5", pageNo: "1" });
+  const url = `${BR_BASE}?${params}`;
+
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const text = await res.text();
+    return NextResponse.json({ sigunguCd, bjdongCd, bldNm, httpStatus: res.status, rawPreview: text.slice(0, 1000) });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
 }
