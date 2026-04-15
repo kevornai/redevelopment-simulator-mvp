@@ -209,12 +209,20 @@ interface ZoneData {
   planned_units_member: number | null;
   planned_units_general: number | null;
   floor_area_ratio_new: number | null;
+  floor_area_ratio_existing: number | null;
   lat: number | null;
   lng: number | null;
-  public_contribution_ratio: number | null;  // 기부체납률 (0~1)
-  incentive_far_bonus: number | null;        // 인센티브 추가 용적률
-  member_avg_pyung: number | null;           // 조합원 평균 분양 평형 (㎡)
-  efficiency_ratio: number | null;           // 전용면적 효율 (0~1)
+  public_contribution_ratio: number | null;
+  incentive_far_bonus: number | null;
+  member_avg_pyung: number | null;
+  efficiency_ratio: number | null;
+  // 신축 분양 세대수 — 평형별 (엑셀 c[20]~c[24])
+  new_units_sale_u40: number | null;
+  new_units_sale_40_60: number | null;
+  new_units_sale_60_85: number | null;
+  new_units_sale_85_135: number | null;
+  new_units_sale_o135: number | null;
+  new_units_sale_total: number | null;
 }
 
 // ─── 단계 순서 (낮을수록 초기 단계) ───────────────────────────────────────────
@@ -407,30 +415,40 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     : z.total_floor_area;
 
   // 조합원/일반분양 면적 계산
-  // 필요 필드: zone_area_sqm, floor_area_ratio_new, planned_units_member, member_avg_pyung
-  // 선택 필드: public_contribution_ratio (없으면 0), incentive_far_bonus (없으면 0), efficiency_ratio (없으면 0.80)
+  // 방법 A (우선): 평형별 세대수 분포로 총 분양면적 산출 → 조합원/일반 비율 분배
+  // 방법 B (fallback): zone_area_sqm × FAR 기반 추정
   const missingSaleAreaFields: string[] = [];
-  if (!z.zone_area_sqm)          missingSaleAreaFields.push('구역면적(zone_area_sqm)');
-  if (!z.floor_area_ratio_new)   missingSaleAreaFields.push('재건축후용적률(floor_area_ratio_new)');
-  if (!z.planned_units_member)   missingSaleAreaFields.push('조합원세대수(planned_units_member)');
-  if (!z.member_avg_pyung)       missingSaleAreaFields.push('조합원평균분양평형(member_avg_pyung)');
-
   let member_sale_area = z.member_sale_area;
   let general_sale_area = z.general_sale_area;
   let saleAreaSource: "calculated" | "db" | "missing" = "db";
 
-  if (missingSaleAreaFields.length === 0) {
-    const effectiveSite = z.zone_area_sqm! * (1 - (z.public_contribution_ratio ?? 0));
-    const totalFAR = z.floor_area_ratio_new! + (z.incentive_far_bonus ?? 0);
-    const aboveGroundArea = effectiveSite * totalFAR;
-    const efficiency = z.efficiency_ratio ?? 0.80;
-    const netArea = aboveGroundArea * efficiency;
-    const calcMemberArea = z.planned_units_member! * z.member_avg_pyung!;
-    const calcGeneralArea = Math.max(0, netArea - calcMemberArea);
-    member_sale_area = calcMemberArea;
-    general_sale_area = calcGeneralArea;
+  const hasSizeDist = z.new_units_sale_total && z.new_units_sale_total > 0 &&
+    (z.new_units_sale_u40 != null || z.new_units_sale_40_60 != null ||
+     z.new_units_sale_60_85 != null || z.new_units_sale_85_135 != null || z.new_units_sale_o135 != null);
+
+  if (hasSizeDist && z.planned_units_member && z.new_units_sale_total) {
+    // 방법 A: 평형 중간값 × 세대수 합산 → 총 분양면적
+    const totalSaleArea =
+      (z.new_units_sale_u40     ?? 0) * 30    +
+      (z.new_units_sale_40_60   ?? 0) * 50    +
+      (z.new_units_sale_60_85   ?? 0) * 72.5  +
+      (z.new_units_sale_85_135  ?? 0) * 110   +
+      (z.new_units_sale_o135    ?? 0) * 150;
+    const memberRatio = z.planned_units_member / z.new_units_sale_total;
+    member_sale_area  = totalSaleArea * memberRatio;
+    general_sale_area = totalSaleArea * (1 - memberRatio);
+    saleAreaSource = "calculated";
+  } else if (z.zone_area_sqm && z.floor_area_ratio_new && z.planned_units_member && z.member_avg_pyung) {
+    // 방법 B: FAR 기반
+    const effectiveSite = z.zone_area_sqm * (1 - (z.public_contribution_ratio ?? 0));
+    const totalFAR = z.floor_area_ratio_new + (z.incentive_far_bonus ?? 0);
+    const netArea = effectiveSite * totalFAR * (z.efficiency_ratio ?? 0.80);
+    member_sale_area  = z.planned_units_member * z.member_avg_pyung;
+    general_sale_area = Math.max(0, netArea - member_sale_area);
     saleAreaSource = "calculated";
   } else {
+    if (!z.new_units_sale_total) missingSaleAreaFields.push('평형별세대수(new_units_sale_*)');
+    if (!z.planned_units_member) missingSaleAreaFields.push('조합원세대수(planned_units_member)');
     saleAreaSource = "missing";
   }
 
