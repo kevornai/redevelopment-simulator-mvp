@@ -150,6 +150,7 @@ export interface CalculationResult {
     molitOk: boolean;
     buildingFloorAreaFromApi: boolean;
     buildingFloorAreaRaw: number | null;
+    buildingFloorAreaFAR: number | null;
     projectStageRank: number;
     saleAreaSource: "calculated" | "db" | "missing";
     missingSaleAreaFields: string[];  // 계산 불가 시 누락된 필드 목록
@@ -582,6 +583,7 @@ export async function calculateAnalysis(
         molitOk: marketData.localPrice?.fromApi === true,
         buildingFloorAreaFromApi: marketData.buildingFloorArea?.fromApi === true,
         buildingFloorAreaRaw: marketData.buildingFloorArea?.totalFloorArea ?? null,
+        buildingFloorAreaFAR: marketData.buildingFloorArea?.floorAreaRatio ?? null,
         projectStageRank: stageRank(baseZone.project_stage),
         saleAreaSource: resolvedZ._derivedSources.saleAreaSource,
         missingSaleAreaFields: resolvedZ._derivedSources.missingSaleAreaFields,

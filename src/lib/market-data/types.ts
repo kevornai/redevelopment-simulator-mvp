@@ -65,6 +65,7 @@ export interface PublicPriceData {
 
 export interface BuildingFloorData {
   totalFloorArea: number;
+  floorAreaRatio: number | null;  // 현재 용적률 (API vlRat)
   buildingCount: number;
   fromApi: true;
 }

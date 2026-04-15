@@ -931,7 +931,7 @@ export default function ReportTestClient() {
                   <span className="text-zinc-400">plannedUnitsMember</span><span>{result.debugParams.plannedUnitsMember ?? "null"}</span>
                   <span className="text-zinc-400">nearbyOk</span><span className={result.debugParams.nearbyOk ? "text-green-600" : "text-red-500"}>{result.debugParams.nearbyOk ? "✓ true" : "✗ false"}</span>
                   <span className="text-zinc-400">molitOk</span><span className={result.debugParams.molitOk ? "text-green-600" : "text-red-500"}>{result.debugParams.molitOk ? "✓ true" : "✗ false"}</span>
-                  <span className="text-zinc-400">건축물대장</span><span className={result.debugParams.buildingFloorAreaFromApi ? "text-green-600" : "text-red-500"}>{result.debugParams.buildingFloorAreaFromApi ? `✓ ${result.debugParams.buildingFloorAreaRaw?.toLocaleString()}㎡` : "✗ 조회 실패"}</span>
+                  <span className="text-zinc-400">건축물대장</span><span className={result.debugParams.buildingFloorAreaFromApi ? "text-green-600" : "text-red-500"}>{result.debugParams.buildingFloorAreaFromApi ? `✓ ${result.debugParams.buildingFloorAreaRaw?.toLocaleString()}㎡ / 현용적률 ${result.debugParams.buildingFloorAreaFAR ?? "—"}%` : "✗ 조회 실패"}</span>
                   <span className="text-zinc-400">stageRank</span><span>{result.debugParams.projectStageRank}</span>
                   <span className="text-zinc-400">total_appraisal_value</span><span>{(result.debugParams.total_appraisal_value / 1e8).toFixed(1)}억</span>
                   <span className="text-zinc-400">total_floor_area</span><span>{result.debugParams.total_floor_area.toLocaleString()}㎡</span>

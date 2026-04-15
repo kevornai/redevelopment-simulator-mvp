@@ -12,7 +12,8 @@ const BR_BASE = 'https://apis.data.go.kr/1613000/BldRgstHubService/getBrRecapTit
 
 export interface BuildingFloorData {
   totalFloorArea: number;  // 연면적 합계 (㎡)
-  buildingCount: number;   // 조회된 동 수
+  floorAreaRatio: number | null;  // 현재 용적률 (예: 2.5 = 250%)
+  buildingCount: number;
   fromApi: true;
 }
 
@@ -72,9 +73,13 @@ export async function fetchBuildingFloorArea(
       return { data: null, error: 'totArea 값 0' };
     }
 
+    const vlRatMatch = text.match(/<vlRat>([^<]+)<\/vlRat>/);
+    const floorAreaRatio = vlRatMatch ? (parseFloat(vlRatMatch[1].trim()) || null) : null;
+
     return {
       data: {
         totalFloorArea,
+        floorAreaRatio,
         buildingCount: 1,
         fromApi: true,
       },
