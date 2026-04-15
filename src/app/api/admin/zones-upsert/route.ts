@@ -76,6 +76,14 @@ export async function POST(req: NextRequest) {
     p_base: zone.p_base,
     member_sale_price_per_pyung: zone.member_sale_price_per_pyung,
     total_appraisal_value: zone.total_appraisal_value,
+    // 면적 계산 필드
+    zone_area_sqm: zone.zone_area_sqm || null,
+    planned_units_member: zone.planned_units_member || null,
+    floor_area_ratio_new: zone.floor_area_ratio_new || null,
+    public_contribution_ratio: zone.public_contribution_ratio || null,
+    incentive_far_bonus: zone.incentive_far_bonus || null,
+    member_avg_pyung: zone.member_avg_pyung || null,
+    efficiency_ratio: zone.efficiency_ratio || null,
     updated_at: new Date().toISOString(),
   };
   if (coords) { patch.lat = coords.lat; patch.lng = coords.lng; }

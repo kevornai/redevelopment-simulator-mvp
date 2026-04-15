@@ -16,6 +16,14 @@ interface ZoneRow {
   member_sale_price_per_pyung: number;
   total_appraisal_value: number;
   updated_at: string;
+  // 면적 계산 필드
+  zone_area_sqm: number | null;
+  planned_units_member: number | null;
+  floor_area_ratio_new: number | null;
+  public_contribution_ratio: number | null;
+  incentive_far_bonus: number | null;
+  member_avg_pyung: number | null;
+  efficiency_ratio: number | null;
 }
 
 // ── 상수 ──────────────────────────────────────────────────────
@@ -51,6 +59,13 @@ const EMPTY_FORM: Omit<ZoneRow, "updated_at"> & { address: string } = {
   member_sale_price_per_pyung: 55000000,
   total_appraisal_value: 3000000000000,
   address: "",
+  zone_area_sqm: null,
+  planned_units_member: null,
+  floor_area_ratio_new: null,
+  public_contribution_ratio: null,
+  incentive_far_bonus: null,
+  member_avg_pyung: null,
+  efficiency_ratio: null,
 };
 
 function fWon(n: number) {
@@ -347,7 +362,7 @@ export default function AdminZonesPage() {
               <hr className="border-zinc-100" />
               <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">계산 상수</p>
               <div className="grid grid-cols-3 gap-4">
-                <Field label="평당 일반분양가 (원)" hint="p_base">
+                <Field label="평당 일반분양가 (원)" hint="p_base — API 없을 때 기본값">
                   <input type="number" value={form.p_base} onChange={(e) => setForm(f => ({ ...f, p_base: Number(e.target.value) }))} className="field-input" />
                 </Field>
                 <Field label="평당 조합원분양가 (원)">
@@ -357,6 +372,44 @@ export default function AdminZonesPage() {
                   <input type="number" value={form.total_appraisal_value} onChange={(e) => setForm(f => ({ ...f, total_appraisal_value: Number(e.target.value) }))} className="field-input" />
                 </Field>
               </div>
+
+              <hr className="border-zinc-100" />
+              <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">면적 계산 <span className="text-zinc-400 font-normal normal-case">— 조합원/일반분양 면적 자동산출</span></p>
+              <div className="grid grid-cols-3 gap-4">
+                <Field label="구역 면적 (㎡)">
+                  <input type="number" value={form.zone_area_sqm ?? ""} onChange={(e) => setForm(f => ({ ...f, zone_area_sqm: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 50000" />
+                </Field>
+                <Field label="조합원 세대수 (세대)">
+                  <input type="number" value={form.planned_units_member ?? ""} onChange={(e) => setForm(f => ({ ...f, planned_units_member: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 500" />
+                </Field>
+                <Field label="조합원 평균 분양평형 (㎡)" hint="예: 84㎡ (25평형)">
+                  <input type="number" value={form.member_avg_pyung ?? ""} onChange={(e) => setForm(f => ({ ...f, member_avg_pyung: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 84" />
+                </Field>
+                <Field label="재건축 후 용적률" hint="소수로 입력 — 예: 2.5 = 250%">
+                  <input type="number" step="0.01" value={form.floor_area_ratio_new ?? ""} onChange={(e) => setForm(f => ({ ...f, floor_area_ratio_new: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 2.5" />
+                </Field>
+                <Field label="기부체납률" hint="소수로 입력 — 예: 0.10 = 10%">
+                  <input type="number" step="0.01" value={form.public_contribution_ratio ?? ""} onChange={(e) => setForm(f => ({ ...f, public_contribution_ratio: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 0.10" />
+                </Field>
+                <Field label="인센티브 추가 용적률" hint="역세권 등 — 예: 0.5 = 50%">
+                  <input type="number" step="0.01" value={form.incentive_far_bonus ?? ""} onChange={(e) => setForm(f => ({ ...f, incentive_far_bonus: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 0.5" />
+                </Field>
+              </div>
+              {/* 면적 계산 미리보기 */}
+              {form.zone_area_sqm && form.floor_area_ratio_new && form.planned_units_member && form.member_avg_pyung && (() => {
+                const site = form.zone_area_sqm! * (1 - (form.public_contribution_ratio ?? 0));
+                const far = form.floor_area_ratio_new! + (form.incentive_far_bonus ?? 0);
+                const net = site * far * (form.efficiency_ratio ?? 0.80);
+                const memberArea = form.planned_units_member! * form.member_avg_pyung!;
+                const generalArea = Math.max(0, net - memberArea);
+                return (
+                  <div className="bg-blue-50 rounded-xl px-4 py-3 text-xs text-blue-800 space-y-1">
+                    <p className="font-semibold">계산 미리보기</p>
+                    <p>유효 대지 {site.toLocaleString()}㎡ × 용적률 {far.toFixed(2)} = 지상 연면적 {(site * far).toLocaleString()}㎡</p>
+                    <p>조합원 분양면적 {memberArea.toLocaleString()}㎡ · 일반분양 가능면적 {generalArea.toLocaleString()}㎡</p>
+                  </div>
+                );
+              })()}
 
               {msg && (
                 <p className={`text-sm font-medium ${msg.startsWith("✅") ? "text-emerald-600" : "text-red-600"}`}>{msg}</p>
