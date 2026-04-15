@@ -151,6 +151,8 @@ export interface CalculationResult {
     buildingFloorAreaFromApi: boolean;
     buildingFloorAreaRaw: number | null;
     projectStageRank: number;
+    saleAreaSource: "calculated" | "db" | "missing";
+    missingSaleAreaFields: string[];  // 계산 불가 시 누락된 필드 목록
   };
   /** 비정상 값 감지 시 경고 메시지 (결과는 유지) */
   warnings: string[];
@@ -208,6 +210,10 @@ interface ZoneData {
   floor_area_ratio_new: number | null;
   lat: number | null;
   lng: number | null;
+  public_contribution_ratio: number | null;  // 기부체납률 (0~1)
+  incentive_far_bonus: number | null;        // 인센티브 추가 용적률
+  member_avg_pyung: number | null;           // 조합원 평균 분양 평형 (㎡)
+  efficiency_ratio: number | null;           // 전용면적 효율 (0~1)
 }
 
 // ─── 단계 순서 (낮을수록 초기 단계) ───────────────────────────────────────────
@@ -399,6 +405,34 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     ? market.buildingFloorArea.totalFloorArea
     : z.total_floor_area;
 
+  // 조합원/일반분양 면적 계산
+  // 필요 필드: zone_area_sqm, floor_area_ratio_new, planned_units_member, member_avg_pyung
+  // 선택 필드: public_contribution_ratio (없으면 0), incentive_far_bonus (없으면 0), efficiency_ratio (없으면 0.80)
+  const missingSaleAreaFields: string[] = [];
+  if (!z.zone_area_sqm)          missingSaleAreaFields.push('구역면적(zone_area_sqm)');
+  if (!z.floor_area_ratio_new)   missingSaleAreaFields.push('재건축후용적률(floor_area_ratio_new)');
+  if (!z.planned_units_member)   missingSaleAreaFields.push('조합원세대수(planned_units_member)');
+  if (!z.member_avg_pyung)       missingSaleAreaFields.push('조합원평균분양평형(member_avg_pyung)');
+
+  let member_sale_area = z.member_sale_area;
+  let general_sale_area = z.general_sale_area;
+  let saleAreaSource: "calculated" | "db" | "missing" = "db";
+
+  if (missingSaleAreaFields.length === 0) {
+    const effectiveSite = z.zone_area_sqm! * (1 - (z.public_contribution_ratio ?? 0));
+    const totalFAR = z.floor_area_ratio_new! + (z.incentive_far_bonus ?? 0);
+    const aboveGroundArea = effectiveSite * totalFAR;
+    const efficiency = z.efficiency_ratio ?? 0.80;
+    const netArea = aboveGroundArea * efficiency;
+    const calcMemberArea = z.planned_units_member! * z.member_avg_pyung!;
+    const calcGeneralArea = Math.max(0, netArea - calcMemberArea);
+    member_sale_area = calcMemberArea;
+    general_sale_area = calcGeneralArea;
+    saleAreaSource = "calculated";
+  } else {
+    saleAreaSource = "missing";
+  }
+
   return {
     ...z,
     annual_pf_rate,
@@ -414,9 +448,13 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     months_to_construction_start,
     member_sale_price_per_pyung,
     total_floor_area,
+    member_sale_area,
+    general_sale_area,
     _derivedSources: {
       monthsToConstruction: months_to_construction_source,
       memberSalePrice: member_sale_price_source,
+      saleAreaSource,
+      missingSaleAreaFields,
     },
   };
 }
@@ -545,6 +583,8 @@ export async function calculateAnalysis(
         buildingFloorAreaFromApi: marketData.buildingFloorArea?.fromApi === true,
         buildingFloorAreaRaw: marketData.buildingFloorArea?.totalFloorArea ?? null,
         projectStageRank: stageRank(baseZone.project_stage),
+        saleAreaSource: resolvedZ._derivedSources.saleAreaSource,
+        missingSaleAreaFields: resolvedZ._derivedSources.missingSaleAreaFields,
       },
       warnings,
       calculatedAt: new Date().toISOString(),
@@ -561,6 +601,8 @@ type ResolvedZoneData = ZoneData & {
   _derivedSources: {
     monthsToConstruction: "announced" | "statistical";
     memberSalePrice: "announced" | "manual" | "cost_estimated";
+    saleAreaSource: "calculated" | "db" | "missing";
+    missingSaleAreaFields: string[];
   };
 };
 

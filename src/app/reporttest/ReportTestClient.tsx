@@ -935,8 +935,18 @@ export default function ReportTestClient() {
                   <span className="text-zinc-400">stageRank</span><span>{result.debugParams.projectStageRank}</span>
                   <span className="text-zinc-400">total_appraisal_value</span><span>{(result.debugParams.total_appraisal_value / 1e8).toFixed(1)}억</span>
                   <span className="text-zinc-400">total_floor_area</span><span>{result.debugParams.total_floor_area.toLocaleString()}㎡</span>
-                  <span className="text-zinc-400">member_sale_area</span><span>{result.debugParams.member_sale_area.toLocaleString()}㎡</span>
-                  <span className="text-zinc-400">general_sale_area</span><span>{result.debugParams.general_sale_area.toLocaleString()}㎡</span>
+                  <span className="text-zinc-400">member_sale_area</span>
+                  <span className={result.debugParams.saleAreaSource === "calculated" ? "text-green-600" : result.debugParams.saleAreaSource === "missing" ? "text-red-500" : ""}>
+                    {result.debugParams.saleAreaSource === "missing"
+                      ? `✗ 필요: ${result.debugParams.missingSaleAreaFields.join(", ")}`
+                      : `${result.debugParams.saleAreaSource === "calculated" ? "✓ " : ""}${result.debugParams.member_sale_area.toLocaleString()}㎡`}
+                  </span>
+                  <span className="text-zinc-400">general_sale_area</span>
+                  <span className={result.debugParams.saleAreaSource === "calculated" ? "text-green-600" : result.debugParams.saleAreaSource === "missing" ? "text-red-500" : ""}>
+                    {result.debugParams.saleAreaSource === "missing"
+                      ? `✗ 필요: ${result.debugParams.missingSaleAreaFields.join(", ")}`
+                      : `${result.debugParams.saleAreaSource === "calculated" ? "✓ " : ""}${result.debugParams.general_sale_area.toLocaleString()}㎡`}
+                  </span>
                   <span className="text-zinc-400">p_base</span><span className={result.debugParams.p_base > 50_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.p_base / 1e4).toFixed(0)}만/평 {result.debugParams.p_base > 50_000_000 ? "⚠️ 서울값?" : ""}</span>
                   <span className="text-zinc-400">member_sale_price</span><span className={result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.member_sale_price_per_pyung / 1e4).toFixed(0)}만/평 {result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "⚠️ 서울값?" : ""}</span>
                   <span className="text-zinc-400">peak_local</span><span>{(result.debugParams.peak_local / 1e4).toFixed(0)}만/평</span>
