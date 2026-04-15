@@ -394,6 +394,11 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
   const member_sale_price_per_pyung = memberSaleDerived.value;
   const member_sale_price_source = memberSaleDerived.source;
 
+  // 연면적: 건축물대장 API 값 우선 (DB 기본값 200,000㎡ 대체)
+  const total_floor_area = market.buildingFloorArea?.fromApi && market.buildingFloorArea.totalFloorArea > 0
+    ? market.buildingFloorArea.totalFloorArea
+    : z.total_floor_area;
+
   return {
     ...z,
     annual_pf_rate,
@@ -408,6 +413,7 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     avg_appraisal_rate,
     months_to_construction_start,
     member_sale_price_per_pyung,
+    total_floor_area,
     _derivedSources: {
       monthsToConstruction: months_to_construction_source,
       memberSalePrice: member_sale_price_source,
