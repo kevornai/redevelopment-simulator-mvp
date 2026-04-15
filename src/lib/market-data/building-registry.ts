@@ -73,8 +73,15 @@ export async function fetchBuildingFloorArea(
       return { data: null, error: 'totArea 값 0' };
     }
 
-    const vlRatMatch = text.match(/<vlRat>([^<]+)<\/vlRat>/);
-    const floorAreaRatio = vlRatMatch ? (parseFloat(vlRatMatch[1].trim()) || null) : null;
+    // vlRat API 값은 신뢰 불가 (10배 오차 확인됨)
+    // vlRatEstmTotArea / platArea × 100 으로 직접 계산
+    const vlRatEstmMatch = text.match(/<vlRatEstmTotArea>([^<]+)<\/vlRatEstmTotArea>/);
+    const platAreaMatch  = text.match(/<platArea>([^<]+)<\/platArea>/);
+    const vlRatEstm = vlRatEstmMatch ? parseFloat(vlRatEstmMatch[1].trim()) : 0;
+    const platArea  = platAreaMatch  ? parseFloat(platAreaMatch[1].trim())  : 0;
+    const floorAreaRatio = (vlRatEstm > 0 && platArea > 0)
+      ? Math.round(vlRatEstm / platArea * 1000) / 10  // 소수점 1자리 %
+      : null;
 
     return {
       data: {
