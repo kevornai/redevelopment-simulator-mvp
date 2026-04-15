@@ -8,7 +8,7 @@
 
 import type { ApiResult } from './types';
 
-const BR_BASE = 'http://apis.data.go.kr/1613000/ArchPmsService_v2/getBrTitleInfo';
+const BR_BASE = 'https://apis.data.go.kr/1613000/BldRgstHubService/getBrTitleInfo';
 
 export interface BuildingFloorData {
   totalFloorArea: number;  // 연면적 합계 (㎡)
