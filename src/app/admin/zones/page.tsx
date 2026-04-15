@@ -385,20 +385,20 @@ export default function AdminZonesPage() {
                 <Field label="조합원 평균 분양평형 (㎡)" hint="예: 84㎡ (25평형)">
                   <input type="number" value={form.member_avg_pyung ?? ""} onChange={(e) => setForm(f => ({ ...f, member_avg_pyung: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 84" />
                 </Field>
-                <Field label="재건축 후 용적률" hint="소수로 입력 — 예: 2.5 = 250%">
-                  <input type="number" step="0.01" value={form.floor_area_ratio_new ?? ""} onChange={(e) => setForm(f => ({ ...f, floor_area_ratio_new: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 2.5" />
+                <Field label="재건축 후 용적률 (%)" hint="예: 230 = 230%">
+                  <input type="number" step="1" value={form.floor_area_ratio_new ?? ""} onChange={(e) => setForm(f => ({ ...f, floor_area_ratio_new: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 230" />
                 </Field>
-                <Field label="기부체납률" hint="소수로 입력 — 예: 0.10 = 10%">
-                  <input type="number" step="0.01" value={form.public_contribution_ratio ?? ""} onChange={(e) => setForm(f => ({ ...f, public_contribution_ratio: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 0.10" />
+                <Field label="기부체납률 (%)" hint="예: 10 = 10%">
+                  <input type="number" step="1" value={form.public_contribution_ratio != null ? form.public_contribution_ratio * 100 : ""} onChange={(e) => setForm(f => ({ ...f, public_contribution_ratio: e.target.value ? Number(e.target.value) / 100 : null }))} className="field-input" placeholder="예: 10" />
                 </Field>
-                <Field label="인센티브 추가 용적률" hint="역세권 등 — 예: 0.5 = 50%">
-                  <input type="number" step="0.01" value={form.incentive_far_bonus ?? ""} onChange={(e) => setForm(f => ({ ...f, incentive_far_bonus: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 0.5" />
+                <Field label="인센티브 추가 용적률 (%)" hint="역세권 등 — 예: 50 = 50%p 추가">
+                  <input type="number" step="1" value={form.incentive_far_bonus ?? ""} onChange={(e) => setForm(f => ({ ...f, incentive_far_bonus: e.target.value ? Number(e.target.value) : null }))} className="field-input" placeholder="예: 50" />
                 </Field>
               </div>
               {/* 면적 계산 미리보기 */}
               {form.zone_area_sqm && form.floor_area_ratio_new && form.planned_units_member && form.member_avg_pyung && (() => {
                 const site = form.zone_area_sqm! * (1 - (form.public_contribution_ratio ?? 0));
-                const far = form.floor_area_ratio_new! + (form.incentive_far_bonus ?? 0);
+                const far = (form.floor_area_ratio_new! + (form.incentive_far_bonus ?? 0)) / 100;
                 const net = site * far * (form.efficiency_ratio ?? 0.80);
                 const memberArea = form.planned_units_member! * form.member_avg_pyung!;
                 const generalArea = Math.max(0, net - memberArea);

@@ -439,9 +439,9 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     general_sale_area = totalSaleArea * (1 - memberRatio);
     saleAreaSource = "calculated";
   } else if (z.zone_area_sqm && z.floor_area_ratio_new && z.planned_units_member && z.member_avg_pyung) {
-    // 방법 B: FAR 기반
+    // 방법 B: FAR 기반 (floor_area_ratio_new는 % 단위로 저장됨 → /100)
     const effectiveSite = z.zone_area_sqm * (1 - (z.public_contribution_ratio ?? 0));
-    const totalFAR = z.floor_area_ratio_new + (z.incentive_far_bonus ?? 0);
+    const totalFAR = (z.floor_area_ratio_new + (z.incentive_far_bonus ?? 0)) / 100;
     const netArea = effectiveSite * totalFAR * (z.efficiency_ratio ?? 0.80);
     member_sale_area  = z.planned_units_member * z.member_avg_pyung;
     general_sale_area = Math.max(0, netArea - member_sale_area);
