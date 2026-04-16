@@ -186,8 +186,10 @@ function parseGyeonggi(lines: string[]): ParsedRow[] {
       existing_building_year:  num(c[7]) ? Math.round(num(c[7])!) : null,
       existing_units_total:    num(c[9]),
       planned_units_total:     num(c[15]),
-      planned_units_member:    num(c[16]),
-      planned_units_general:   num(c[17]),
+      // 공무원 기재 오류: 조합원 컬럼(c[16])에 전체세대수가 들어오는 경우가 많음
+      // → 기존주택계(c[9])를 조합원수로, 신축분양계-기존주택계를 일반분양으로 계산
+      planned_units_member:    num(c[9]),
+      planned_units_general:   (() => { const sale = num(c[19]); const mem = num(c[9]); return (sale != null && mem != null) ? Math.max(0, sale - mem) : num(c[17]); })(),
       planned_units_rent:      num(c[18]),
       new_units_sale_total:    num(c[19]),
       new_units_sale_u40:      num(c[20]),
