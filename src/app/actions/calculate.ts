@@ -422,19 +422,22 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
   let general_sale_area = z.general_sale_area;
   let saleAreaSource: "calculated" | "db" | "missing" = "db";
 
-  const hasSizeDist = z.new_units_sale_total && z.new_units_sale_total > 0 &&
+  const hasSizeDist =
     (z.new_units_sale_u40 != null || z.new_units_sale_40_60 != null ||
      z.new_units_sale_60_85 != null || z.new_units_sale_85_135 != null || z.new_units_sale_o135 != null);
 
-  if (hasSizeDist && z.planned_units_member && z.new_units_sale_total) {
+  if (hasSizeDist && z.planned_units_member && z.planned_units_general != null) {
     // 방법 A: 평형 중간값 × 세대수 합산 → 총 분양면적
+    // 분모는 new_units_sale_total 대신 planned_units_member + planned_units_general 사용
+    // (엑셀 신축분양세대수합계 데이터 불일치 방지)
     const totalSaleArea =
       (z.new_units_sale_u40     ?? 0) * 30    +
       (z.new_units_sale_40_60   ?? 0) * 50    +
       (z.new_units_sale_60_85   ?? 0) * 72.5  +
       (z.new_units_sale_85_135  ?? 0) * 110   +
       (z.new_units_sale_o135    ?? 0) * 150;
-    const memberRatio = z.planned_units_member / z.new_units_sale_total;
+    const totalUnits = z.planned_units_member + z.planned_units_general;
+    const memberRatio = totalUnits > 0 ? z.planned_units_member / totalUnits : 1;
     member_sale_area  = totalSaleArea * memberRatio;
     general_sale_area = totalSaleArea * (1 - memberRatio);
     saleAreaSource = "calculated";
@@ -447,8 +450,9 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     general_sale_area = Math.max(0, netArea - member_sale_area);
     saleAreaSource = "calculated";
   } else {
-    if (!z.new_units_sale_total) missingSaleAreaFields.push('평형별세대수(new_units_sale_*)');
+    if (!hasSizeDist) missingSaleAreaFields.push('평형별세대수(new_units_sale_*)');
     if (!z.planned_units_member) missingSaleAreaFields.push('조합원세대수(planned_units_member)');
+    if (z.planned_units_general == null) missingSaleAreaFields.push('일반분양세대수(planned_units_general)');
     saleAreaSource = "missing";
   }
 
