@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchMarketData } from "@/lib/market-data";
 import type { MarketData } from "@/lib/market-data";
-import { deriveMonthsToConstruction, deriveMemberSalePrice } from "@/lib/derive-zone-params";
+import { deriveMonthsToConstruction, deriveMemberSalePrice, type StagePercentileData } from "@/lib/derive-zone-params";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 타입 정의
@@ -57,7 +57,7 @@ export interface ScenarioResult {
   appliedMonths: number;
   monthsToConstructionStart: number;
   constructionPeriodMonths: number;
-  monthsToConstructionSource: "announced" | "statistical" | "db_override";
+  monthsToConstructionSource: "announced" | "statistical" | "db_percentile" | "db_override";
 
   // ── 공사비 ──
   appliedConstructionCostPerPyung: number; // 최종 적용 평당 공사비
@@ -198,6 +198,7 @@ interface ZoneData {
   existing_apt_pyung: number | null;
   lawd_cd: string | null;
   bjd_code: string | null;             // 법정동코드 10자리 — NSDI 공시가격 조회
+  sigungu: string | null;              // 시군구 텍스트 — 지역별 조합원 할인율 분류
   land_official_price_per_sqm: number | null;
   construction_start_announced_ym: string | null;
   member_sale_price_source: "cost_estimated" | "announced" | "manual";
@@ -233,6 +234,98 @@ const STAGE_RANK: Record<string, number> = {
 };
 function stageRank(stage: string): number {
   return STAGE_RANK[stage] ?? 0;
+}
+
+// ─── 단계별 착공까지 기간 백분위 — DB 실측 캐시 ─────────────────────────────
+interface StagePercentilesCache {
+  management_disposal:    StagePercentileData;
+  project_implementation: StagePercentileData;
+  zone_designation:       StagePercentileData;
+}
+
+const STAGE_PCT_FALLBACK: StagePercentilesCache = {
+  management_disposal:    { p25: 12, p50: 18, p75: 28, n: 0 },
+  project_implementation: { p25: 20, p50: 30, p75: 45, n: 0 },
+  zone_designation:       { p25: 45, p50: 60, p75: 84, n: 0 },
+};
+
+let _stagePctCache: StagePercentilesCache | null = null;
+let _stagePctCacheTs = 0;
+
+function monthsBetweenDates(start: string | null, end: string | null): number | null {
+  if (!start || !end) return null;
+  const s = new Date(start);
+  const e = new Date(end);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return null;
+  const diff = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+  return diff > 0 && diff < 300 ? diff : null;
+}
+
+function computePercentiles(durations: number[]): StagePercentileData {
+  const sorted = [...durations].sort((a, b) => a - b);
+  const n = sorted.length;
+  if (n < 5) return { p25: 0, p50: 0, p75: 0, n };
+  const pct = (p: number) => {
+    const idx = (p / 100) * (n - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    return Math.round(sorted[lo] + (idx - lo) * (sorted[hi] - sorted[lo]));
+  };
+  return { p25: pct(25), p50: pct(50), p75: pct(75), n };
+}
+
+async function fetchStagePercentiles(): Promise<StagePercentilesCache> {
+  const now = Date.now();
+  if (_stagePctCache && now - _stagePctCacheTs < 24 * 60 * 60 * 1000) {
+    return _stagePctCache;
+  }
+  try {
+    const supabase = await createClient();
+
+    const [{ data: mdRows }, { data: piRows }, { data: zdRows }] = await Promise.all([
+      supabase
+        .from('zones_data')
+        .select('management_disposal_date, construction_start_date')
+        .not('management_disposal_date', 'is', null)
+        .not('construction_start_date', 'is', null),
+      supabase
+        .from('zones_data')
+        .select('project_implementation_date, construction_start_date')
+        .not('project_implementation_date', 'is', null)
+        .not('construction_start_date', 'is', null),
+      supabase
+        .from('zones_data')
+        .select('zone_designation_date, construction_start_date')
+        .not('zone_designation_date', 'is', null)
+        .not('construction_start_date', 'is', null),
+    ]);
+
+    const result: StagePercentilesCache = {
+      management_disposal: computePercentiles(
+        (mdRows ?? []).map((r: { management_disposal_date: string | null; construction_start_date: string | null }) =>
+          monthsBetweenDates(r.management_disposal_date, r.construction_start_date)).filter((v): v is number => v !== null)
+      ),
+      project_implementation: computePercentiles(
+        (piRows ?? []).map((r: { project_implementation_date: string | null; construction_start_date: string | null }) =>
+          monthsBetweenDates(r.project_implementation_date, r.construction_start_date)).filter((v): v is number => v !== null)
+      ),
+      zone_designation: computePercentiles(
+        (zdRows ?? []).map((r: { zone_designation_date: string | null; construction_start_date: string | null }) =>
+          monthsBetweenDates(r.zone_designation_date, r.construction_start_date)).filter((v): v is number => v !== null)
+      ),
+    };
+
+    // 표본 부족하면 fallback 유지
+    if (result.management_disposal.n < 5) result.management_disposal = STAGE_PCT_FALLBACK.management_disposal;
+    if (result.project_implementation.n < 5) result.project_implementation = STAGE_PCT_FALLBACK.project_implementation;
+    if (result.zone_designation.n < 5) result.zone_designation = STAGE_PCT_FALLBACK.zone_designation;
+
+    _stagePctCache = result;
+    _stagePctCacheTs = now;
+    return result;
+  } catch {
+    return STAGE_PCT_FALLBACK;
+  }
 }
 
 /**
@@ -330,7 +423,12 @@ function estimateParamsForStage(
  * API 데이터로 Zone 상수를 오버라이드한 유효 파라미터 세트
  * DB 값이 fallback, 실시간 API 값이 우선
  */
-function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number) {
+function resolveZoneParams(
+  z: ZoneData,
+  market: MarketData,
+  desiredPyung: number,
+  stagePercentiles: StagePercentilesCache,
+) {
   // 금리: ECOS API 우선 (단위: % → 소수 변환)
   const annual_pf_rate = market.rates.fromApi
     ? market.rates.pfRate / 100
@@ -392,22 +490,40 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     ? market.publicPrice.estimatedAppraisalRate
     : z.avg_appraisal_rate;
 
-  // ── 착공까지 기간: 공표월 → 오늘 기준 계산, 없으면 단계별 통계 추정
+  // ── 착공까지 기간: 공표월 → DB 백분위 → 단계별 통계 fallback
+  const stagePctForStage: StagePercentileData | null = (() => {
+    if (z.project_stage === 'management_disposal')    return stagePercentiles.management_disposal;
+    if (z.project_stage === 'project_implementation') return stagePercentiles.project_implementation;
+    if (z.project_stage === 'zone_designation')       return stagePercentiles.zone_designation;
+    return null;
+  })();
   const monthsDerived = deriveMonthsToConstruction(
     z.project_stage,
     z.construction_start_announced_ym,
+    stagePctForStage,
   );
   const months_to_construction_start = monthsDerived.value;
-  const months_to_construction_source = monthsDerived.source; // "announced" | "statistical"
+  const months_p25 = monthsDerived.p25;
+  const months_p75 = monthsDerived.p75;
+  const months_to_construction_source = monthsDerived.source;
 
-  // ── 조합원 분양가: 공표/수동 입력값 있으면 그대로, 없으면 p_base(API 기반) × 0.78 추정
+  // ── 조합원 분양가: 공표/수동 입력값 있으면 그대로, 없으면 지역별 할인율 × p_base 추정
   const memberSaleDerived = deriveMemberSalePrice(
     z.member_sale_price_per_pyung,
     z.member_sale_price_source,
-    p_base,  // API에서 갱신된 p_base 기준
+    p_base,       // API에서 갱신된 p_base 기준
+    z.sigungu,    // 지역별 차등 할인율
   );
   const member_sale_price_per_pyung = memberSaleDerived.value;
   const member_sale_price_source = memberSaleDerived.source;
+
+  // ── 볼린저 밴드 trend 데이터: nearbyNewAptPrice 우선, 없으면 localPrice
+  const trendSlopePerMonth = nearbyOk
+    ? (market.nearbyNewAptPrice!.trendSlopePerMonth ?? 0)
+    : (molitOk ? (market.localPrice!.trendSlopePerMonth ?? 0) : 0);
+  const monthlyStdDev = nearbyOk
+    ? (market.nearbyNewAptPrice!.monthlyStdDev ?? 0)
+    : (molitOk ? (market.localPrice!.monthlyStdDev ?? 0) : 0);
 
   // 연면적: 건축물대장 API 값 우선 (DB 기본값 200,000㎡ 대체)
   const total_floor_area = market.buildingFloorArea?.fromApi && market.buildingFloorArea.totalFloorArea > 0
@@ -473,6 +589,10 @@ function resolveZoneParams(z: ZoneData, market: MarketData, desiredPyung: number
     total_floor_area,
     member_sale_area,
     general_sale_area,
+    trendSlopePerMonth,
+    monthlyStdDev,
+    months_p25,
+    months_p75,
     _derivedSources: {
       monthsToConstruction: months_to_construction_source,
       memberSalePrice: member_sale_price_source,
@@ -530,8 +650,11 @@ export async function calculateAnalysis(
     ? { ...input, officialValuation: effectiveOfficialValuation }
     : input;
 
-  // Step 5: API 데이터로 Zone 상수 오버라이드 (nearbyNewAptPrice → p_base/peak_local/neighbor)
-  const apiResolved = resolveZoneParams(zForApi, marketData, input.desiredPyung) as ResolvedZoneData;
+  // Step 5: DB 단계별 소요기간 백분위 조회 (24h 캐시)
+  const stagePercentiles = await fetchStagePercentiles();
+
+  // Step 5b: API 데이터로 Zone 상수 오버라이드 (nearbyNewAptPrice → p_base/peak_local/neighbor)
+  const apiResolved = resolveZoneParams(zForApi, marketData, input.desiredPyung, stagePercentiles) as ResolvedZoneData;
 
   // Step 6: 관리자 명시 입력값 최우선 적용 (API 값을 덮어씀)
   // 관리자가 직접 입력한 값은 어떤 자동화 값보다 우선
@@ -623,11 +746,19 @@ export async function calculateAnalysis(
 
 type ResolvedZoneData = ZoneData & {
   _derivedSources: {
-    monthsToConstruction: "announced" | "statistical";
+    monthsToConstruction: "announced" | "statistical" | "db_percentile";
     memberSalePrice: "announced" | "manual" | "cost_estimated";
     saleAreaSource: "calculated" | "db" | "missing";
     missingSaleAreaFields: string[];
   };
+  /** 볼린저 밴드용 OLS 추세 (원/평/월). 0이면 데이터 없음 */
+  trendSlopePerMonth: number;
+  /** 볼린저 밴드 σ (원/평). 0이면 데이터 없음 */
+  monthlyStdDev: number;
+  /** 착공까지 기간 P25 (낙관 T 계산용) */
+  months_p25: number;
+  /** 착공까지 기간 P75 (비관 T 계산용) */
+  months_p75: number;
 };
 
 function computeScenario(
@@ -638,42 +769,92 @@ function computeScenario(
   const { purchasePrice, purchaseLoanAmount, currentDeposit, desiredPyung, officialValuation } = input;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Step 1: 시나리오별 총 사업 기간 T (개월)
+  // Step 1: 시나리오별 착공까지 기간 (monthsToStart) + 총 기간 T
+  //
+  // DB 백분위가 있으면 P25/P50/P75 사용, 없으면 기존 임의 가감 방식
   // ─────────────────────────────────────────────────────────────────────────
-  let T: number;
-  if (type === "optimistic") {
-    // 인허가 패스트트랙: 행정 기간 25% 단축
-    T = z.base_project_months - z.t_admin_remaining * 0.25;
-  } else if (type === "pessimistic") {
-    // 시공사 분쟁/파업 지연 가산
-    T = z.base_project_months + z.delay_conflict;
-  } else {
-    T = z.base_project_months;
-  }
-
-  // 착공까지 남은 기간과 공사 기간 분리
   let monthsToStart: number;
   if (type === "optimistic") {
-    monthsToStart = Math.max(0, z.months_to_construction_start - z.t_admin_remaining * 0.25);
+    // P25: 빠른 25% 사례 (DB 실측) or 행정 기간 25% 단축
+    monthsToStart = z.months_p25 > 0
+      ? z.months_p25
+      : Math.max(0, z.months_to_construction_start - z.t_admin_remaining * 0.25);
   } else if (type === "pessimistic") {
-    monthsToStart = z.months_to_construction_start + z.delay_conflict * 0.3;
+    // P75: 느린 75% 사례 (DB 실측) or 지연 가산
+    monthsToStart = z.months_p75 > 0
+      ? z.months_p75
+      : z.months_to_construction_start + z.delay_conflict * 0.3;
   } else {
     monthsToStart = z.months_to_construction_start;
   }
-  const constructionPeriodMonths = T - monthsToStart;
+
+  // 공사 기간은 시나리오에 따라 조정 (낙관 -10%, 비관 +20%)
+  const BASE_CONSTRUCTION_MONTHS = z.base_project_months - z.months_to_construction_start;
+  const constructionPeriodMonths = type === "optimistic"
+    ? BASE_CONSTRUCTION_MONTHS * 0.90
+    : type === "pessimistic"
+    ? BASE_CONSTRUCTION_MONTHS * 1.20
+    : BASE_CONSTRUCTION_MONTHS;
+
+  const T = monthsToStart + constructionPeriodMonths;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Step 2: 일반 분양가 P_scenario (평당, 원)
+  // Step 2: 일반 분양가 P_scenario (평당, 원) — 볼린저 밴드
+  //
+  // σ > 0 이면 OLS 추세 + ±2σ 밴드 방식 (Bollinger Band)
+  // σ = 0 (데이터 없음) 이면 기존 방식 (peak 또는 mdd 기반)
+  //
+  // 일반분양은 '착공 시점' 전후에 이루어지므로 monthsToStart 기준 투영
   // ─────────────────────────────────────────────────────────────────────────
+  const sigma = z.monthlyStdDev;
+  const trendedPAtStart = z.p_base + z.trendSlopePerMonth * monthsToStart;
+
   let P: number;
-  if (type === "optimistic") {
-    // peak_local이 유효(p_base 초과)하면 95% 적용, 아니면 p_base 15% 상승 추정
-    P = z.peak_local > z.p_base ? z.peak_local * 0.95 : z.p_base * 1.15;
-  } else if (type === "pessimistic") {
-    // 낙폭 적용, 최소 p_base의 80% 보장 (극단 시나리오 방지)
-    P = Math.max(z.p_base * 0.8, z.p_base * (1 - z.mdd_local));
+  if (sigma > 0) {
+    if (type === "optimistic") {
+      P = trendedPAtStart + 2 * sigma;
+      // peak가 있고 볼린저 상단보다 낮으면 peak×0.95로 조정 (보수 캡)
+      if (z.peak_local > z.p_base) P = Math.min(P, z.peak_local * 0.95);
+    } else if (type === "pessimistic") {
+      // -2σ + 기준금리 충격(-8%) — 비관에서 금리 +2%p 상승 충격 가정
+      P = (trendedPAtStart - 2 * sigma) * 0.92;
+      P = Math.max(P, z.p_base * 0.55); // 극단 하한
+    } else {
+      P = trendedPAtStart;
+    }
   } else {
-    P = z.p_base;
+    // 데이터 없을 때 기존 방식
+    if (type === "optimistic") {
+      P = z.peak_local > z.p_base ? z.peak_local * 0.95 : z.p_base * 1.15;
+    } else if (type === "pessimistic") {
+      P = Math.max(z.p_base * 0.8, z.p_base * (1 - z.mdd_local));
+    } else {
+      P = z.p_base;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Step 2b: 입주 후 예상 시세 — T 전체 기간 기준으로 투영
+  //   neighbor_new_apt_price = 현재 인근 신축 추정 시세 (희망 평형 기준)
+  //   투영: + 추세 × T개월 ± 2σ × desiredPyung
+  // ─────────────────────────────────────────────────────────────────────────
+  // desiredPyung은 위 destructure에서 이미 선언됨
+  let projectedNeighborPrice: number;
+  if (z.neighbor_new_apt_price > 0 && sigma > 0) {
+    const trendGain = z.trendSlopePerMonth * T * desiredPyung;
+    if (type === "optimistic") {
+      projectedNeighborPrice = z.neighbor_new_apt_price + trendGain + 2 * sigma * desiredPyung;
+    } else if (type === "pessimistic") {
+      projectedNeighborPrice = Math.max(
+        (z.neighbor_new_apt_price + trendGain - 2 * sigma * desiredPyung) * 0.92,
+        z.neighbor_new_apt_price * 0.65
+      );
+    } else {
+      projectedNeighborPrice = z.neighbor_new_apt_price + trendGain;
+    }
+  } else {
+    // 데이터 없으면 현재 시세 그대로 (기존 동작 유지)
+    projectedNeighborPrice = z.neighbor_new_apt_price;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -767,8 +948,8 @@ function computeScenario(
   // 연 2% 시세 상승 가정 (보수적)
   const annualAppreciationRate = 0.02;
   const premiumRecoveryYears =
-    estimatedPremium > 0 && z.neighbor_new_apt_price > 0
-      ? Math.log(1 + estimatedPremium / z.neighbor_new_apt_price) /
+    estimatedPremium > 0 && projectedNeighborPrice > 0
+      ? Math.log(1 + estimatedPremium / projectedNeighborPrice) /
         Math.log(1 + annualAppreciationRate)
       : 0;
 
@@ -814,8 +995,8 @@ function computeScenario(
   // 실제 현금 투입 (대출 및 보증금 레버리지 제외)
   const effectiveCash           = purchasePrice - purchaseLoanAmount - currentDeposit;
 
-  const netProfit             = z.neighbor_new_apt_price - totalInvestmentCost;
-  const netProfitAfterCosts   = z.neighbor_new_apt_price - totalInvestmentWithCosts;
+  const netProfit             = projectedNeighborPrice - totalInvestmentCost;
+  const netProfitAfterCosts   = projectedNeighborPrice - totalInvestmentWithCosts;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Step 17: 수익률 지표
@@ -848,7 +1029,7 @@ function computeScenario(
   const cashFlows: Array<{ month: number; amount: number }> = [
     { month: 0,                          amount: -(effectiveCash + acquisitionTax + moveOutCost) },
     { month: Math.round(monthsToStart),  amount: -(contributionAtConstruction) },
-    { month: Math.round(T),              amount: z.neighbor_new_apt_price + currentDeposit - contributionAtCompletion - purchaseLoanAmount },
+    { month: Math.round(T),              amount: projectedNeighborPrice + currentDeposit - contributionAtCompletion - purchaseLoanAmount },
   ];
 
   const irr = calcIRR(cashFlows) * 100; // 월→연 환산은 calcIRR 내부에서 처리
@@ -877,7 +1058,7 @@ function computeScenario(
       : 0;
 
   // 최대 감당 가능 분담금: 순수익 0이 되는 분담금 상한
-  const maxAffordableContribution = z.neighbor_new_apt_price - purchasePrice;
+  const maxAffordableContribution = projectedNeighborPrice - purchasePrice;
 
   // 기회비용 대비 초과 수익 (연 목표수익률 투자 대비)
   const opportunityCostGain =
@@ -905,7 +1086,7 @@ function computeScenario(
     appliedMonths: Math.round(T),
     monthsToConstructionStart: Math.round(monthsToStart),
     constructionPeriodMonths: Math.round(constructionPeriodMonths),
-    monthsToConstructionSource: (type === "neutral" ? z._derivedSources.monthsToConstruction : "db_override") as "announced" | "statistical" | "db_override",
+    monthsToConstructionSource: (type === "neutral" ? z._derivedSources.monthsToConstruction : "db_override") as "announced" | "statistical" | "db_percentile" | "db_override",
     appliedConstructionCostPerPyung: Math.round(C_T),
     constructionCostGrowthRate: Math.round(appliedMonthlyRate * 10000) / 100, // 소수점 2자리 %
     appliedGeneralSalePrice: Math.round(P),

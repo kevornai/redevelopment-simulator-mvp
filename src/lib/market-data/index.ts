@@ -118,7 +118,7 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
       complexName
         ? fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 6, complexName)
         : Promise.resolve({ data: null, error: 'no complexName' } as const),
-      fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 12, undefined, true),
+      fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 24, undefined, true),
     ]);
     if (localResult.data) localPrice = localResult.data;
     if (nearbyResult.data) nearbyNewAptPrice = nearbyResult.data;

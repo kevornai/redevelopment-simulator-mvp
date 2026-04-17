@@ -311,6 +311,7 @@ const SOURCE_BADGE_CONFIG = {
   manual:         { label: "수동입력", cls: "bg-blue-100 text-blue-700"  },
   cost_estimated: { label: "추정값",   cls: "bg-yellow-100 text-yellow-700" },
   statistical:    { label: "통계추정", cls: "bg-zinc-100 text-zinc-500"  },
+  db_percentile:  { label: "DB실측",   cls: "bg-indigo-100 text-indigo-700" },
   db_override:    { label: "시나리오", cls: "bg-zinc-100 text-zinc-500"  },
 } as const;
 

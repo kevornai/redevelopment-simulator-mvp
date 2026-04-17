@@ -51,6 +51,10 @@ export interface LocalPriceData {
   /** 데이터 기준 년월 */
   basePeriod: string;
   fromApi: boolean;
+  /** OLS 선형 추세 — 월별 중위가 기준 (원/평/월). 데이터 부족 시 0 */
+  trendSlopePerMonth: number;
+  /** 볼린저 밴드용 월별 중위가 표준편차 (원/평). 데이터 부족 시 0 */
+  monthlyStdDev: number;
 }
 
 export interface PublicPriceData {

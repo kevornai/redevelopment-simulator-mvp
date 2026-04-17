@@ -110,6 +110,26 @@ function median(arr: number[]): number {
     : sorted[mid];
 }
 
+/** OLS 단순 선형회귀 — slope b (y = a + b*x) */
+function olsSlope(x: number[], y: number[]): number {
+  const n = x.length;
+  if (n < 3) return 0;
+  const sumX  = x.reduce((a, b) => a + b, 0);
+  const sumY  = y.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((acc, xi, i) => acc + xi * y[i], 0);
+  const sumX2 = x.reduce((acc, xi) => acc + xi * xi, 0);
+  const denom = n * sumX2 - sumX * sumX;
+  return denom === 0 ? 0 : (n * sumXY - sumX * sumY) / denom;
+}
+
+/** 표본 표준편차 */
+function stdDev(arr: number[]): number {
+  if (arr.length < 2) return 0;
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const variance = arr.reduce((acc, v) => acc + Math.pow(v - mean, 2), 0) / (arr.length - 1);
+  return Math.sqrt(variance);
+}
+
 function maxDrawdown(pricesByMonth: number[][]): number {
   // 월별 중위값 시계열에서 최대 낙폭 계산
   const monthlyMedians = pricesByMonth.map(m => median(m)).filter(v => v > 0);
@@ -142,8 +162,8 @@ export async function fetchLocalPrice(
   newAptOnly = false,
 ): Promise<ApiResult<LocalPriceData>> {
   try {
-    // 6개월치만 조회 (타임아웃 방지 — 부족하면 넓힘)
-    const months = recentMonths(Math.min(lookbackMonths, 6));
+    // 최대 60개월까지 허용 (Next.js revalidate 캐시로 재호출 비용 0)
+    const months = recentMonths(Math.min(lookbackMonths, 60));
     const currentYear = new Date().getFullYear();
     const newAptCutoffYear = currentYear - 5;
 
@@ -154,6 +174,8 @@ export async function fetchLocalPrice(
 
     const allTx: ApartmentTransaction[] = [];
     const pricesByMonth: number[][] = [];
+    // 볼린저 밴드용: 필터 없이 전체 거래 월별 중위가 수집 (역순: 최근=index0)
+    const allTxMonthlyPrices: number[][] = [];
 
     // 단지명 정규화 (괄호/특수문자 제거 후 비교)
     const normalizedComplex = complexName
@@ -162,10 +184,15 @@ export async function fetchLocalPrice(
 
     for (const items of batchResults) {
       const monthPrices: number[] = [];
+      const allMonthRaw: number[] = [];  // 필터 없는 전체 거래 (trend용)
       for (const item of items) {
         const price = parsePrice(item.dealAmount);
         const areaSqm = parseArea(item.excluUseAr);
         if (!(price > 0) || !(areaSqm > 0)) continue; // NaN-safe: NaN <= 0 = false이므로 > 0 역조건 사용
+
+        const pyung = sqmToPyung(areaSqm);
+        const pricePerPyung = price / pyung;
+        allMonthRaw.push(pricePerPyung);  // 필터 없이 수집
 
         // 단지명 필터 — 있으면 해당 단지만
         if (normalizedComplex && item.aptNm) {
@@ -178,8 +205,6 @@ export async function fetchLocalPrice(
         // newAptOnly 모드: 신축(5년 이내)만 포함 — 구축 오염 방지
         if (newAptOnly && buildYear > 0 && buildYear < newAptCutoffYear) continue;
 
-        const pyung = sqmToPyung(areaSqm);
-        const pricePerPyung = price / pyung;
         const dealYm = (item.dealYear || '') + (item.dealMonth || '').padStart(2, '0');
 
         allTx.push({
@@ -194,6 +219,7 @@ export async function fetchLocalPrice(
         monthPrices.push(pricePerPyung);
       }
       pricesByMonth.push(monthPrices);
+      allTxMonthlyPrices.push(allMonthRaw);
     }
 
     if (allTx.length === 0) {
@@ -218,6 +244,24 @@ export async function fetchLocalPrice(
 
     const basePeriod = months[0]; // 가장 최근 조회 년월
 
+    // 볼린저 밴드용 OLS 추세 + σ 계산
+    // allTxMonthlyPrices는 역순(최근=index0) → 시간순(과거=index0)으로 뒤집어서 OLS
+    const chronoMedians = allTxMonthlyPrices
+      .map(arr => median(arr))
+      .reverse(); // 이제 [oldest, ..., most_recent]
+
+    const validPoints = chronoMedians
+      .map((y, x) => ({ x, y }))
+      .filter(p => p.y > 0);
+
+    const trendSlopePerMonth = validPoints.length >= 4
+      ? olsSlope(validPoints.map(p => p.x), validPoints.map(p => p.y))
+      : 0;
+
+    const monthlyStdDev = validPoints.length >= 4
+      ? stdDev(validPoints.map(p => p.y))
+      : 0;
+
     return {
       data: {
         medianNewAptPricePerPyung,
@@ -227,6 +271,8 @@ export async function fetchLocalPrice(
         lawdCd,
         basePeriod,
         fromApi: true,
+        trendSlopePerMonth,
+        monthlyStdDev,
       },
       error: null,
     };
