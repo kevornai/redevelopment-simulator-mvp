@@ -1,4 +1,7 @@
 #!/usr/bin/env tsx
+// cleansys.or.kr 등 한국 정부 사이트 중간 CA 누락 문제 우회 (배치 스크립트 전용)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 /**
  * 정비사업 통계 배치 수집 스크립트
  *
@@ -16,6 +19,94 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { scrapeAllProjects, ProjectDetail } from "./lib/cleansys-batch";
 import { parsePdfFromUrl, DiscountRateItem } from "./lib/pdf-parser";
+
+// ── 경기도 정비사업 현황 API (GenrlimprvBizpropls) ─────────────────────
+const GYEONGGI_API_BASE = "https://openapi.gg.go.kr/GenrlimprvBizpropls";
+const GYEONGGI_API_KEY  = process.env.GYEONGGI_OPEN_API_KEY ?? "6f7cae6f12fb49dea44a0f30e1611919";
+
+interface GyeonggiApiRow {
+  SIGUN_NM:                   string;
+  SIGUN_CD:                   string;
+  BIZ_TYPE_NM:                string; // '재건축' | '재개발' | ...
+  IMPRV_ZONE_NM:              string;
+  IMPRV_ZONE_APPONT_FIRST_DE: string | null;
+  IMPRV_PLAN_FOUNDNG_DE:      string | null;
+  PROPLSN_COMMISN_APRV_DE:    string | null;
+  ASSOCTN_FOUND_CONFMTN_DE:   string | null;
+  BIZ_IMPLMTN_CONFMTN_DE:     string | null;
+  MANAGE_DISPOSIT_CONFMTN_DE: string | null;
+  STRCONTR_DE:                string | null;
+  GENRL_LOTOUT_DE:            string | null;
+  COMPLTN_DE:                 string | null;
+}
+
+async function fetchGyeonggiApiRows(
+  onProgress?: (msg: string) => void,
+): Promise<GyeonggiApiRow[]> {
+  const all: GyeonggiApiRow[] = [];
+  let page = 1;
+  let total: number | null = null;
+
+  while (true) {
+    const url =
+      `${GYEONGGI_API_BASE}?KEY=${GYEONGGI_API_KEY}&Type=json&pIndex=${page}&pSize=100`;
+    const res = await fetch(url, {
+      headers: {
+        "Referer":    "https://data.gg.go.kr",
+        "User-Agent": "Mozilla/5.0 (compatible; research-bot/1.0)",
+      },
+    });
+    if (!res.ok) throw new Error(`경기도 API HTTP ${res.status}`);
+
+    const data = await res.json() as { GenrlimprvBizpropls: Array<Record<string, unknown>> };
+    const root = data?.GenrlimprvBizpropls ?? [];
+    if (!root || root.length < 2) break;
+
+    const headList = (root[0] as { head: Array<Record<string, unknown>> }).head ?? [];
+    if (total === null) {
+      total = (headList[0] as { list_total_count: number }).list_total_count ?? 0;
+    }
+    const resultCode = ((headList[1] as { RESULT: { CODE: string } })?.RESULT?.CODE) ?? "";
+    if (resultCode !== "INFO-000") {
+      onProgress?.(`  경기도 API 오류: ${resultCode} (page ${page})`);
+      break;
+    }
+
+    const rows = ((root[1] as { row?: GyeonggiApiRow[] }).row) ?? [];
+    all.push(...rows);
+    onProgress?.(`  경기도 API page ${page}: ${rows.length}건 → 누계 ${all.length}/${total}`);
+
+    if (all.length >= total || rows.length === 0) break;
+    page++;
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  return all;
+}
+
+function mapGyeonggiToTimelineRow(r: GyeonggiApiRow) {
+  const projectType =
+    r.BIZ_TYPE_NM === "재건축" ? "reconstruction" :
+    r.BIZ_TYPE_NM === "재개발" ? "redevelopment"  : null;
+  const sourceId = `${r.SIGUN_CD}_${r.IMPRV_ZONE_NM.replace(/\s+/g, "_")}`;
+
+  return {
+    zone_name:                r.IMPRV_ZONE_NM,
+    sido:                     "경기도",
+    sigungu:                  r.SIGUN_NM,
+    project_type:             projectType,
+    date_zone_designation:    r.IMPRV_ZONE_APPONT_FIRST_DE   || null,
+    date_promotion_committee: r.PROPLSN_COMMISN_APRV_DE       || null,
+    date_association:         r.ASSOCTN_FOUND_CONFMTN_DE      || null,
+    date_implementation:      r.BIZ_IMPLMTN_CONFMTN_DE        || null,
+    date_management_disposal: r.MANAGE_DISPOSIT_CONFMTN_DE    || null,
+    date_construction_start:  r.STRCONTR_DE                   || null,
+    date_general_sale:        r.GENRL_LOTOUT_DE               || null,
+    date_completion:          r.COMPLTN_DE                    || null,
+    source:                   "gyeonggi_api",
+    source_id:                sourceId,
+  };
+}
 
 // ── .env.local 로드 (로컬 개발용, CI는 환경변수 직접 주입) ─────────────
 function loadEnvLocal() {
@@ -168,7 +259,7 @@ function computeStageStats(rows: StageRow[]) {
     const allBucket = ensureBucket("all");
 
     for (const [stageKey, col] of Object.entries(STAGE_DATE_COLS) as [StageKey, string][]) {
-      const stageDate = (row as Record<string, string | null>)[col];
+      const stageDate = (row as unknown as Record<string, string | null>)[col];
       if (!stageDate) continue;
       const months = monthsBetween(stageDate, row.date_construction_start);
       if (months > 0 && months < 600) { // sanity: 0 ~ 50년
@@ -257,8 +348,27 @@ async function main() {
   const projects = await scrapeAllProjects(maxPages, msg => console.log(`  ${msg}`));
   console.log(`  수집 완료: ${projects.length}건\n`);
 
+  // ── Step 1b. 경기도 정비사업 현황 API ────────────────────────────
+  console.log("[Step 1b] 경기도 정비사업 현황 API 수집 (GenrlimprvBizpropls)...");
+  let gyeonggiApiRows: ReturnType<typeof mapGyeonggiToTimelineRow>[] = [];
+  try {
+    const rawRows = await fetchGyeonggiApiRows(msg => console.log(msg));
+    gyeonggiApiRows = rawRows.map(mapGyeonggiToTimelineRow);
+    console.log(`  경기도 API 수집 완료: ${gyeonggiApiRows.length}건`);
+
+    if (!dryRun) {
+      const { inserted, errors } = await upsertBatch(supabase, "stage_timeline_raw", gyeonggiApiRows);
+      console.log(`  stage_timeline_raw (gyeonggi_api): ${inserted}건 저장, ${errors}건 오류\n`);
+    } else {
+      const constrCnt = gyeonggiApiRows.filter(r => r.date_construction_start).length;
+      console.log(`  [dry-run] ${gyeonggiApiRows.length}건 저장 건너뜀 (착공완료 ${constrCnt}건)\n`);
+    }
+  } catch (e) {
+    console.error(`  경기도 API 수집 실패: ${e}\n`);
+  }
+
   // ── Step 2. stage_timeline_raw 저장 ──────────────────────────────
-  console.log("[Step 2] stage_timeline_raw 저장...");
+  console.log("[Step 2] stage_timeline_raw 저장 (정비몽땅)...");
   const timelineRows = projects.map((p: ProjectDetail) => ({
     zone_name:                p.zoneName,
     sido:                     p.sido || null,
@@ -357,7 +467,7 @@ async function main() {
     if (stageErr) {
       console.error(`  [stage query error] ${stageErr.message}`);
     } else {
-      const stageStats = computeStageStats((stageData ?? []) as StageRow[]);
+      const stageStats = computeStageStats((stageData ?? []) as unknown as StageRow[]);
       await supabase.from("market_cache").upsert({
         key:        "stage_stats",
         value:      stageStats,

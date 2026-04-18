@@ -10,7 +10,7 @@
  *   - 희망 평형 기준 추정 현재 시세 → estimatedCurrentPrice
  */
 
-import type { ApiResult, ApartmentTransaction, LocalPriceData } from './types';
+import type { ApiResult, ApartmentTransaction, LocalPriceData, OldAptPriceData } from './types';
 
 const MOLIT_BASE = 'https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev';
 
@@ -273,6 +273,56 @@ export async function fetchLocalPrice(
         fromApi: true,
         trendSlopePerMonth,
         monthlyStdDev,
+      },
+      error: null,
+    };
+  } catch (err) {
+    return { data: null, error: String(err) };
+  }
+}
+
+/**
+ * 구축(20년+) 아파트 실거래가 — 종전자산 2순위 역산용
+ * 신축과 달리 newAptOnly=false, buildYear 역필터 적용
+ */
+export async function fetchOldAptPrice(
+  serviceKey: string,
+  lawdCd: string,
+  lookbackMonths = 24,
+): Promise<ApiResult<OldAptPriceData>> {
+  try {
+    const months = recentMonths(Math.min(lookbackMonths, 48));
+    const currentYear = new Date().getFullYear();
+    const oldCutoffYear = currentYear - 20; // 20년 이상 = 구축
+
+    const batchResults = await Promise.all(
+      months.map(ym => fetchMonthTransactions(serviceKey, lawdCd, ym))
+    );
+
+    const pricesPerPyung: number[] = [];
+
+    for (const items of batchResults) {
+      for (const item of items) {
+        const price = parsePrice(item.dealAmount);
+        const areaSqm = parseArea(item.excluUseAr);
+        if (!(price > 0) || !(areaSqm > 0)) continue;
+
+        const buildYear = parseInt(item.buildYear || '0', 10);
+        if (buildYear <= 0 || buildYear > oldCutoffYear) continue; // 구축만
+
+        pricesPerPyung.push(price / sqmToPyung(areaSqm));
+      }
+    }
+
+    if (pricesPerPyung.length === 0) {
+      return { data: null, error: '구축 거래 데이터 없음' };
+    }
+
+    return {
+      data: {
+        medianPricePerPyung: median(pricesPerPyung),
+        sampleCount: pricesPerPyung.length,
+        fromApi: true,
       },
       error: null,
     };

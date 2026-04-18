@@ -934,7 +934,28 @@ export default function ReportTestClient() {
                   <span className="text-zinc-400">molitOk</span><span className={result.debugParams.molitOk ? "text-green-600" : "text-red-500"}>{result.debugParams.molitOk ? "✓ true" : "✗ false"}</span>
                   <span className="text-zinc-400">건축물대장</span><span className={result.debugParams.buildingFloorAreaFromApi ? "text-green-600" : "text-red-500"}>{result.debugParams.buildingFloorAreaFromApi ? `✓ ${result.debugParams.buildingFloorAreaRaw?.toLocaleString()}㎡ / 현용적률 ${result.debugParams.buildingFloorAreaFAR ?? "—"}%` : "✗ 조회 실패"}</span>
                   <span className="text-zinc-400">stageRank</span><span>{result.debugParams.projectStageRank}</span>
-                  <span className="text-zinc-400">total_appraisal_value</span><span>{(result.debugParams.total_appraisal_value / 1e8).toFixed(1)}억</span>
+                  <span className="text-zinc-400">total_appraisal_value</span>
+                  <span>
+                    <span className="font-medium">{(result.debugParams.total_appraisal_value / 1e8).toFixed(1)}억</span>
+                    <span className="ml-1 text-xs text-zinc-400">({result.debugParams.priorAssetMethodUsed})</span>
+                    <span className="ml-2 text-xs space-x-2">
+                      {result.debugParams.priorAssetMethod1 != null && (
+                        <span className={result.debugParams.priorAssetMethodUsed === "method1" ? "text-green-600" : "text-zinc-400"}>
+                          m1:{(result.debugParams.priorAssetMethod1 / 1e8).toFixed(1)}억
+                        </span>
+                      )}
+                      {result.debugParams.priorAssetMethod2 != null && (
+                        <span className={result.debugParams.priorAssetMethodUsed === "method2" ? "text-green-600" : "text-zinc-400"}>
+                          m2:{(result.debugParams.priorAssetMethod2 / 1e8).toFixed(1)}억
+                        </span>
+                      )}
+                      {result.debugParams.priorAssetMethod3 != null && (
+                        <span className={result.debugParams.priorAssetMethodUsed === "method3" ? "text-green-600" : "text-zinc-400"}>
+                          m3:{(result.debugParams.priorAssetMethod3 / 1e8).toFixed(1)}억
+                        </span>
+                      )}
+                    </span>
+                  </span>
                   <span className="text-zinc-400">total_floor_area</span><span>{result.debugParams.total_floor_area.toLocaleString()}㎡</span>
                   <span className="text-zinc-400">member_sale_area</span>
                   <span className={result.debugParams.saleAreaSource === "calculated" ? "text-green-600" : result.debugParams.saleAreaSource === "missing" ? "text-red-500" : ""}>

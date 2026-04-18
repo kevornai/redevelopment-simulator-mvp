@@ -74,6 +74,15 @@ export interface BuildingFloorData {
   fromApi: true;
 }
 
+/** 구축(20년+) 아파트 실거래 데이터 — 종전자산 역산용 */
+export interface OldAptPriceData {
+  /** 구축 아파트 중위 평당 거래가 (원/전용평) */
+  medianPricePerPyung: number;
+  /** 표본 수 */
+  sampleCount: number;
+  fromApi: boolean;
+}
+
 /** 계산 엔진에 주입되는 시장 데이터 전체 */
 export interface MarketData {
   rates: RateData;
@@ -82,6 +91,8 @@ export interface MarketData {
   localPrice: LocalPriceData | null;
   /** 구역 인근 신축(5년 이내) 아파트 시세 — p_base/peak_local/neighbor 자동 산출용 */
   nearbyNewAptPrice: LocalPriceData | null;
+  /** 구역 인근 구축(20년+) 아파트 시세 — 종전자산 2순위 역산용 */
+  oldAptPrice: OldAptPriceData | null;
   publicPrice: PublicPriceData | null;
   /** 건축물대장 현재 연면적 — total_floor_area 추정 기초 데이터 */
   buildingFloorArea: BuildingFloorData | null;

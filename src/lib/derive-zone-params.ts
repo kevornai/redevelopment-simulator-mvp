@@ -25,16 +25,73 @@ export interface StagePercentileData {
   n: number;
 }
 
-/** 단계별 착공까지 fallback 통계 (DB 데이터 부족 시) */
-const MONTHS_TO_CONSTRUCTION_FALLBACK: Record<string, { p25: number; p50: number; p75: number }> = {
-  zone_designation:        { p25: 45, p50: 60, p75: 84 },
-  basic_plan:              { p25: 36, p50: 48, p75: 64 },
-  project_implementation:  { p25: 20, p50: 30, p75: 45 },
-  management_disposal:     { p25: 12, p50: 18, p75: 28 },
-  relocation:              { p25: 2,  p50: 4,  p75: 7  },
-  construction_start:      { p25: 0,  p50: 0,  p75: 0  },
-  completion:              { p25: 0,  p50: 0,  p75: 0  },
+/**
+ * 단계별 착공까지 fallback 통계 — 지역별 차등 (DB 데이터 부족 시)
+ *
+ * 값은 "현재 단계 기준 착공까지 남은 개월 수" P25/P50/P75
+ *
+ * 출처:
+ *   서울    — 서울 열린데이터광장 CleanupBussinessProgress API (구역지정 2003~2020, n=15~46)
+ *   경기재건축 — 경기도 정비사업 현황 공공 API (GenrlimprvBizpropls, 착공완료 구역지정 2003~2020, n=39~77)
+ *   경기재개발 — 동일 API (n=19~48)
+ *   default  — LH 토지주택연구원 2024-091 전국 평균 P50 + 경기재건축 P25/P75 비율 적용
+ */
+type FallbackRegion = 'seoul' | 'gyeonggi_reconstruction' | 'gyeonggi_redevelopment' | 'default';
+type StageFallback  = Record<string, { p25: number; p50: number; p75: number }>;
+
+const MONTHS_TO_CONSTRUCTION_FALLBACK: Record<FallbackRegion, StageFallback> = {
+  seoul: {
+    zone_designation:       { p25:  96, p50: 120, p75: 140 }, // n=46
+    basic_plan:             { p25:  52, p50:  76, p75:  94 }, // n=15 ⚠️
+    project_implementation: { p25:  40, p50:  48, p75:  69 }, // n=19 ⚠️
+    management_disposal:    { p25:  26, p50:  35, p75:  62 }, // n=19 ⚠️
+    relocation:             { p25:   2, p50:   4, p75:   7 },
+    construction_start:     { p25:   0, p50:   0, p75:   0 },
+    completion:             { p25:   0, p50:   0, p75:   0 },
+  },
+  gyeonggi_reconstruction: {
+    zone_designation:       { p25:  16, p50:  38, p75:  73 }, // n=77
+    basic_plan:             { p25:  76, p50:  90, p75: 110 }, // n=20 ⚠️
+    project_implementation: { p25:  18, p50:  27, p75:  38 }, // n=39
+    management_disposal:    { p25:   8, p50:  14, p75:  21 }, // n=76
+    relocation:             { p25:   2, p50:   4, p75:   7 },
+    construction_start:     { p25:   0, p50:   0, p75:   0 },
+    completion:             { p25:   0, p50:   0, p75:   0 },
+  },
+  gyeonggi_redevelopment: {
+    zone_designation:       { p25:  48, p50: 114, p75: 132 }, // n=48
+    basic_plan:             { p25: 127, p50: 142, p75: 159 }, // n=21 ⚠️
+    project_implementation: { p25:  46, p50:  58, p75:  69 }, // n=19 ⚠️
+    management_disposal:    { p25:  20, p50:  32, p75:  36 }, // n=48
+    relocation:             { p25:   2, p50:   4, p75:   7 },
+    construction_start:     { p25:   0, p50:   0, p75:   0 },
+    completion:             { p25:   0, p50:   0, p75:   0 },
+  },
+  default: {
+    zone_designation:       { p25:  29, p50:  88, p75: 128 },
+    basic_plan:             { p25:  54, p50:  75, p75: 107 },
+    project_implementation: { p25:  32, p50:  46, p75:  73 },
+    management_disposal:    { p25:  10, p50:  17, p75:  26 },
+    relocation:             { p25:   2, p50:   4, p75:   7 },
+    construction_start:     { p25:   0, p50:   0, p75:   0 },
+    completion:             { p25:   0, p50:   0, p75:   0 },
+  },
 };
+
+/**
+ * sido / projectType → FallbackRegion 매핑
+ */
+function resolveFallbackRegion(
+  sido?: string | null,
+  projectType?: string | null,
+): FallbackRegion {
+  if (sido?.includes('서울')) return 'seoul';
+  if (sido?.includes('경기')) {
+    if (projectType === 'redevelopment') return 'gyeonggi_redevelopment';
+    return 'gyeonggi_reconstruction'; // 재건축 또는 미분류
+  }
+  return 'default';
+}
 
 export type MonthsDerivation =
   | { value: number; p25: number; p75: number; source: "announced"; announcedYm: string }
@@ -45,14 +102,18 @@ export type MonthsDerivation =
  * 착공까지 남은 개월 수 계산
  *
  * @param projectStage 현재 사업 단계
- * @param announcedYm 착공예정 공표 년월 (YYYYMM, nullable)
+ * @param announcedYm  착공예정 공표 년월 (YYYYMM, nullable)
  * @param dbPercentile DB에서 계산한 해당 단계 백분위 (n>=5이면 우선 사용)
+ * @param sido         시도명 ('서울특별시' | '경기도' | …) — 지역별 fallback 선택용
+ * @param projectType  사업유형 ('reconstruction' | 'redevelopment') — 경기 재개발/재건축 분기용
  * @returns 파생값 + P25/P75 (시나리오별 T 조정용)
  */
 export function deriveMonthsToConstruction(
   projectStage: string,
   announcedYm: string | null | undefined,
   dbPercentile?: StagePercentileData | null,
+  sido?: string | null,
+  projectType?: string | null,
 ): MonthsDerivation {
   // 1순위: 공표된 착공예정월이 있으면 오늘 기준으로 계산
   if (announcedYm && /^\d{6}$/.test(announcedYm)) {
@@ -79,8 +140,9 @@ export function deriveMonthsToConstruction(
     };
   }
 
-  // 3순위: 하드코딩 fallback
-  const fb = MONTHS_TO_CONSTRUCTION_FALLBACK[projectStage] ?? { p25: 18, p50: 24, p75: 36 };
+  // 3순위: 지역별 하드코딩 fallback
+  const region = resolveFallbackRegion(sido, projectType);
+  const fb = MONTHS_TO_CONSTRUCTION_FALLBACK[region][projectStage] ?? { p25: 18, p50: 24, p75: 36 };
   return {
     value: fb.p50,
     p25:   fb.p25,

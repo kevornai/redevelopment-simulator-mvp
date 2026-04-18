@@ -10,7 +10,7 @@
 import type { MarketData, ConstructionCostData, RateData } from './types';
 import { fetchRates, RATE_FALLBACK } from './ecos';
 import { CONSTRUCTION_COST_FALLBACK } from './kosis';
-import { fetchLocalPrice } from './molit';
+import { fetchLocalPrice, fetchOldAptPrice } from './molit';
 import { estimateFromOfficialPrice, fetchPublicPriceByName, fetchPublicPriceByBjdCode, fetchPublicPriceByPnu } from './nsdi';
 import { fetchBuildingFloorArea } from './building-registry';
 import { createClient } from '@supabase/supabase-js';
@@ -108,20 +108,24 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     fetchConstructionCostFromCache(),
   ]);
 
-  // MOLIT 2회 병렬 조회:
+  // MOLIT 3회 병렬 조회:
   //   ① 구역 자체 물건 (구축 단지명 필터) — 재개발 구역은 대부분 null
-  //   ② 인근 신축(5년 이내) 시세 (complexName 없이, 법정동 전체) — p_base/peak/neighbor 자동산출
+  //   ② 인근 신축(5년 이내) 시세 — p_base/peak/neighbor 자동산출
+  //   ③ 구축(20년+) 시세 — 종전자산 2순위 역산용
   let localPrice = null;
   let nearbyNewAptPrice = null;
+  let oldAptPrice = null;
   if (effectiveLawdCd && molitKey) {
-    const [localResult, nearbyResult] = await Promise.all([
+    const [localResult, nearbyResult, oldResult] = await Promise.all([
       complexName
         ? fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 6, complexName)
         : Promise.resolve({ data: null, error: 'no complexName' } as const),
       fetchLocalPrice(molitKey, effectiveLawdCd, desiredPyung, 24, undefined, true),
+      fetchOldAptPrice(molitKey, effectiveLawdCd, 24),
     ]);
     if (localResult.data) localPrice = localResult.data;
     if (nearbyResult.data) nearbyNewAptPrice = nearbyResult.data;
+    if (oldResult.data) oldAptPrice = oldResult.data;
   }
 
   // 역지오코딩 선행 (공시가격 PNU + 건축물대장 공용)
@@ -158,7 +162,7 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     })(),
   ]);
 
-  return { rates, constructionCost, localPrice, nearbyNewAptPrice, publicPrice, buildingFloorArea, fetchedAt: new Date().toISOString() };
+  return { rates, constructionCost, localPrice, nearbyNewAptPrice, oldAptPrice, publicPrice, buildingFloorArea, fetchedAt: new Date().toISOString() };
 }
 
 export { fetchLocalPrice } from './molit';

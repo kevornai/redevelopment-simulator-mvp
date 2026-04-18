@@ -9,7 +9,8 @@
  *   - 금액 단위: 만원 (가장 흔함), 원, 억원
  */
 
-import pdfParse from "pdf-parse";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (buf: Buffer, opts?: { max?: number }) => Promise<{ text: string }>;
 
 export interface DiscountRateItem {
   pyungType: string;        // 평형 유형 (예: '84A', '59B')

@@ -154,6 +154,11 @@ export interface CalculationResult {
     projectStageRank: number;
     saleAreaSource: "calculated" | "db" | "missing";
     missingSaleAreaFields: string[];  // 계산 불가 시 누락된 필드 목록
+    // 종전자산 추정 방법별 값 (비교용 — 모두 계산)
+    priorAssetMethod1: number | null;  // 세대수 × 공시가 × 감평율 (원)
+    priorAssetMethod2: number | null;  // 구축 실거래 역산 (원)
+    priorAssetMethod3: number | null;  // 구역공시지가 × 1.5 (원)
+    priorAssetMethodUsed: string;      // 실제 사용된 방법
   };
   /** 비정상 값 감지 시 경고 메시지 (결과는 유지) */
   warnings: string[];
@@ -337,17 +342,25 @@ async function fetchStagePercentiles(): Promise<StagePercentilesCache> {
  * 단가(p_base, 조합원분양가)는 MOLIT 실거래가 or 매수가 기반 지역단가로 추정.
  * DB 서울 기준 placeholder(p_base 7천만, 조합원 5천만)는 지방 분석에서 비례율 폭주 유발.
  */
+interface PriorAssetBreakdown {
+  method1: number | null;  // 세대수 × 공시가 × 감평율
+  method2: number | null;  // 구축 실거래 역산
+  method3: number | null;  // 구역공시지가 × 1.5
+  methodUsed: string;
+}
+
 function estimateParamsForStage(
   z: ZoneData,
   input: CalculationInput,
   market: MarketData,
-): Partial<ZoneData> {
+): { overrides: Partial<ZoneData>; priorAsset: PriorAssetBreakdown } {
   const rank = stageRank(z.project_stage);
   const overrides: Partial<ZoneData> = {};
+  const priorAsset: PriorAssetBreakdown = { method1: null, method2: null, method3: null, methodUsed: "fallback" };
 
   // 세대수: 기존 세대수 우선, 없으면 계획 세대수
   const existingUnits = z.existing_units_total ?? z.planned_units_member ?? 0;
-  if (existingUnits <= 0) return overrides; // 세대수 모르면 추정 불가 → DB 기본값 유지
+  if (existingUnits <= 0) return { overrides, priorAsset }; // 세대수 모르면 추정 불가 → DB 기본값 유지
 
   const memberUnits  = z.planned_units_member  ?? 0;
   const generalUnits = z.planned_units_general ?? 0;
@@ -363,22 +376,40 @@ function estimateParamsForStage(
   const landPricePerSqm = (input.admin?.landOfficialPricePerSqm ?? 0) ||
                           (z.land_official_price_per_sqm ?? 0);
 
-  // ── C섹션: 총종전자산 감정평가액 ─────────────────────────────────────────
+  // ── C섹션: 총종전자산 감정평가액 — 3가지 방법 모두 계산 (비교용) ──────────
   if (rank < STAGE_RANK.management_disposal) {
-    let estimatedTotal = 0;
-
+    // method1: 세대수 × 공시가 × 감평율 × 0.9
     if (officialVal > 0) {
-      // 공시가 × 감정평가율 × 세대수 (× 0.9: 사용자 단위가 평균보다 클 수 있음)
-      estimatedTotal = existingUnits * officialVal * z.avg_appraisal_rate * 0.9;
+      priorAsset.method1 = existingUnits * officialVal * z.avg_appraisal_rate * 0.9;
+    }
+
+    // method2: 구축(20년+) 실거래 역산 — 연면적 × 65%(주거비율) × 구축시세 × 0.8
+    if (market.oldAptPrice?.fromApi && market.oldAptPrice.medianPricePerPyung > 0 && z.total_floor_area > 0) {
+      priorAsset.method2 = (z.total_floor_area / 3.3058) * 0.65 * market.oldAptPrice.medianPricePerPyung * 0.8;
+    }
+
+    // method3: 구역면적 × 개별공시지가 × 1.5
+    if (z.zone_area_sqm && z.zone_area_sqm > 0 && landPricePerSqm > 0) {
+      priorAsset.method3 = z.zone_area_sqm * landPricePerSqm * 1.5;
+    }
+
+    // 우선순위: method3 → method1 → method2 → 대지지분 역산 → fallback
+    let estimatedTotal = 0;
+    if (priorAsset.method3) {
+      estimatedTotal = priorAsset.method3;
+      priorAsset.methodUsed = "method3";
+    } else if (priorAsset.method1) {
+      estimatedTotal = priorAsset.method1;
+      priorAsset.methodUsed = "method1";
     } else if (input.landShareSqm > 0 && landPricePerSqm > 0) {
-      // 대지지분 × 개별공시지가 → 토지 감정평가액 × 세대수
       estimatedTotal = existingUnits * (input.landShareSqm * landPricePerSqm) / 0.65 * 0.90;
-    } else if (z.zone_area_sqm && z.zone_area_sqm > 0 && landPricePerSqm > 0) {
-      // 구역 전체 공시지가 기반
-      estimatedTotal = (z.zone_area_sqm * landPricePerSqm) / 0.65 * 0.90;
+      priorAsset.methodUsed = "대지지분역산";
+    } else if (priorAsset.method2) {
+      estimatedTotal = priorAsset.method2;
+      priorAsset.methodUsed = "method2";
     } else {
-      // 최종 fallback: 매수가 ÷ 1.3 × 세대수 (프리미엄 30% 제거)
       estimatedTotal = existingUnits * (input.purchasePrice / 1.3);
+      priorAsset.methodUsed = "fallback";
     }
 
     if (estimatedTotal > 0) overrides.total_appraisal_value = estimatedTotal;
@@ -416,7 +447,7 @@ function estimateParamsForStage(
     }
   }
 
-  return overrides;
+  return { overrides, priorAsset };
 }
 
 /**
@@ -501,6 +532,8 @@ function resolveZoneParams(
     z.project_stage,
     z.construction_start_announced_ym,
     stagePctForStage,
+    z.sigungu,
+    z.project_type,
   );
   const months_to_construction_start = monthsDerived.value;
   const months_p25 = monthsDerived.p25;
@@ -636,7 +669,7 @@ export async function calculateAnalysis(
   });
 
   // Step 2: 단계 미도달 필드 추정 (DB 플레이스홀더 → 역산 추정값)
-  const estimatedOverrides = estimateParamsForStage(baseZone, input, marketData);
+  const { overrides: estimatedOverrides, priorAsset: priorAssetBreakdown } = estimateParamsForStage(baseZone, input, marketData);
 
   // Step 3: DB + 추정값 병합 (API 오버라이드 전 기준값)
   const zForApi: ZoneData = { ...baseZone, ...estimatedOverrides };
@@ -732,6 +765,10 @@ export async function calculateAnalysis(
         projectStageRank: stageRank(baseZone.project_stage),
         saleAreaSource: resolvedZ._derivedSources.saleAreaSource,
         missingSaleAreaFields: resolvedZ._derivedSources.missingSaleAreaFields,
+        priorAssetMethod1: priorAssetBreakdown.method1,
+        priorAssetMethod2: priorAssetBreakdown.method2,
+        priorAssetMethod3: priorAssetBreakdown.method3,
+        priorAssetMethodUsed: priorAssetBreakdown.methodUsed,
       },
       warnings,
       calculatedAt: new Date().toISOString(),
