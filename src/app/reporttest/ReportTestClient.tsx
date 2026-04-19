@@ -975,6 +975,89 @@ export default function ReportTestClient() {
                   <span className="text-zinc-400">neighbor_new_apt</span><span>{(result.debugParams.neighbor_new_apt_price / 1e8).toFixed(2)}억</span>
                 </div>
               </details>
+              {/* 계산 과정 상세 (관리자용) */}
+              <details className="mt-2">
+                <summary className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-600">📐 계산 과정 상세 (중립 시나리오 기준)</summary>
+                {(() => {
+                  const b = result.neutral.calcBreakdown;
+                  const fmt억 = (v: number) => `${(v / 1e8).toFixed(1)}억`;
+                  const fmt만 = (v: number) => `${(v / 1e4).toFixed(0)}만`;
+                  return (
+                    <div className="mt-2 font-mono text-xs text-zinc-600 space-y-3">
+
+                      {/* Step 1 */}
+                      <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                        <div className="font-semibold text-zinc-700 mb-1">① 사업기간</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                          <span className="text-zinc-400">착공까지</span><span>{b.monthsToStart}개월 ({(b.monthsToStart/12).toFixed(1)}년)</span>
+                          <span className="text-zinc-400">공사기간</span><span>{b.constructionMonths}개월 ({(b.constructionMonths/12).toFixed(1)}년)</span>
+                          <span className="text-zinc-400">총 T</span><span className="font-medium">{b.T}개월 ({(b.T/12).toFixed(1)}년)</span>
+                        </div>
+                      </div>
+
+                      {/* Step 2 */}
+                      <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                        <div className="font-semibold text-zinc-700 mb-1">② 공사비 예측 (지수평활)</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                          <span className="text-zinc-400">현재 C₀</span><span>{fmt만(b.C0)}/평</span>
+                          <span className="text-zinc-400">감쇠계수 W</span><span>{b.W}</span>
+                          <span className="text-zinc-400">적용 월 인상률</span><span>{(b.appliedMonthlyRate * 100).toFixed(3)}%</span>
+                          <span className="text-zinc-400">착공시 C_T</span><span className="font-medium">{fmt만(b.C_T)}/평</span>
+                        </div>
+                      </div>
+
+                      {/* Step 3 */}
+                      <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                        <div className="font-semibold text-zinc-700 mb-1">③ 총사업비</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                          <span className="text-zinc-400">연면적</span><span>{b.totalFloorAreaPyung.toLocaleString()}평</span>
+                          <span className="text-zinc-400">순수공사비 (C_T × 연면적)</span><span>{fmt억(b.pureCost)}</span>
+                          <span className="text-zinc-400">기타사업비 (×15%)</span><span>{fmt억(b.otherCost)}</span>
+                          <span className="text-zinc-400">금융비용</span><span>{fmt억(b.financialCost)}</span>
+                          <span className="text-zinc-400 font-medium">총사업비</span><span className="font-medium">{fmt억(b.totalCost)}</span>
+                        </div>
+                      </div>
+
+                      {/* Step 4 */}
+                      <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                        <div className="font-semibold text-zinc-700 mb-1">④ 총분양수익</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                          <span className="text-zinc-400">일반분양가 P</span><span>{fmt만(b.P)}/평</span>
+                          <span className="text-zinc-400">일반분양면적</span><span>{b.generalSaleAreaPyung.toLocaleString()}평</span>
+                          <span className="text-zinc-400">일반분양수익</span><span>{fmt억(b.generalRevenue)}</span>
+                          <span className="text-zinc-400">조합원분양면적</span><span>{b.memberSaleAreaPyung.toLocaleString()}평</span>
+                          <span className="text-zinc-400">조합원분양수익</span><span>{fmt억(b.memberRevenue)}</span>
+                          <span className="text-zinc-400 font-medium">총분양수익</span><span className="font-medium">{fmt억(b.totalRevenue)}</span>
+                        </div>
+                      </div>
+
+                      {/* Step 5 */}
+                      <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                        <div className="font-semibold text-zinc-700 mb-1">⑤ 비례율</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                          <span className="text-zinc-400">총종전자산</span><span>{fmt억(b.totalAppraisalValue)}</span>
+                          <span className="text-zinc-400">(총분양수익 - 총사업비)</span><span>{fmt억(b.totalRevenue - b.totalCost)}</span>
+                          <span className="text-zinc-400 font-medium">비례율</span><span className="font-medium">{result.neutral.proportionalRate.toFixed(1)}%</span>
+                        </div>
+                      </div>
+
+                      {/* Step 6 */}
+                      <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                        <div className="font-semibold text-zinc-700 mb-1">⑥ 개인 감정평가 & 분담금</div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                          <span className="text-zinc-400">감정평가 방법</span><span>{b.appraisalMethodDetail}</span>
+                          <span className="text-zinc-400">감정평가액</span><span>{fmt억(result.neutral.estimatedAppraisalValue)}</span>
+                          <span className="text-zinc-400">권리가액 (×비례율)</span><span>{fmt억(result.neutral.rightsValue)}</span>
+                          <span className="text-zinc-400">조합원분양가 총액</span><span>{fmt억(result.neutral.targetMemberSalePrice)}</span>
+                          <span className="text-zinc-400 font-medium">추가분담금</span><span className="font-medium">{fmt억(result.neutral.additionalContribution)}</span>
+                        </div>
+                      </div>
+
+                    </div>
+                  );
+                })()}
+              </details>
+
               {/* API 데이터 소스 배지 */}
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {(

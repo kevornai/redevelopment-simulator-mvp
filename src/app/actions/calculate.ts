@@ -112,6 +112,37 @@ export interface ScenarioResult {
 
   // ── 단계별 현금흐름 ──
   stageCashFlows: StageCashFlow[];
+
+  // ── 계산 과정 중간값 (관리자 검증용) ──
+  calcBreakdown: {
+    // 사업기간
+    T: number;                        // 총 사업기간 (개월)
+    monthsToStart: number;            // 착공까지 (개월)
+    constructionMonths: number;       // 공사기간 (개월)
+    // 공사비
+    C0: number;                       // 현재 평당 공사비 (원)
+    W: number;                        // 지수평활 감쇠계수
+    appliedMonthlyRate: number;       // 적용 월 인상률
+    C_T: number;                      // 착공시 예측 평당 공사비 (원)
+    // 연면적
+    totalFloorAreaPyung: number;      // 신축 총연면적 (평)
+    generalSaleAreaPyung: number;     // 일반분양 면적 (평)
+    memberSaleAreaPyung: number;      // 조합원분양 면적 (평)
+    // 총사업비
+    pureCost: number;                 // 순수공사비 (원)
+    otherCost: number;                // 기타사업비 (원)
+    financialCost: number;            // 금융비용 (원)
+    totalCost: number;                // 총사업비 (원)
+    // 분양수익
+    P: number;                        // 일반분양가 (원/평)
+    memberRevenue: number;            // 조합원분양수익 (원)
+    generalRevenue: number;           // 일반분양수익 (원)
+    totalRevenue: number;             // 총분양수익 (원)
+    // 비례율
+    totalAppraisalValue: number;      // 총종전자산 (원)
+    // 개인 감정평가
+    appraisalMethodDetail: string;    // 감정평가 방법 설명
+  };
 }
 
 export interface CalculationResult {
@@ -907,13 +938,15 @@ function computeScenario(
   const C0 = z.current_construction_cost;
   let C_T: number;
   let appliedMonthlyRate: number;
+  let W = 0;
 
   if (type === "pessimistic") {
     // 지수평활 배제 — 최근 급등세 유지 + 지정학적 위기 프리미엄 가산
     appliedMonthlyRate = z.r_recent + z.alpha;
     C_T = C0 * Math.pow(1 + appliedMonthlyRate, T);
+    W = 0;
   } else {
-    let W = Math.exp(-z.decay_factor * T);
+    W = Math.exp(-z.decay_factor * T);
     if (type === "optimistic") W *= 0.5; // 물가 안정화 가속
     appliedMonthlyRate = W * z.r_recent + (1 - W) * z.r_long;
     C_T = C0 * Math.pow(1 + appliedMonthlyRate, T);
@@ -1161,6 +1194,30 @@ function computeScenario(
     maxAffordableContribution: Math.round(maxAffordableContribution),
     opportunityCostGap: Math.round(opportunityCostGap),
     stageCashFlows,
+    calcBreakdown: {
+      T: Math.round(T),
+      monthsToStart: Math.round(monthsToStart),
+      constructionMonths: Math.round(constructionPeriodMonths),
+      C0: Math.round(C0),
+      W: Math.round(W * 1000) / 1000,
+      appliedMonthlyRate: Math.round(appliedMonthlyRate * 100000) / 100000,
+      C_T: Math.round(C_T),
+      totalFloorAreaPyung: Math.round(totalFloorAreaPyung * 10) / 10,
+      generalSaleAreaPyung: Math.round(generalSaleAreaPyung * 10) / 10,
+      memberSaleAreaPyung: Math.round(memberSaleAreaPyung * 10) / 10,
+      pureCost: Math.round(totalConstructionCost),
+      otherCost: Math.round(baseBusinessExpense),
+      financialCost: Math.round(financialCost),
+      totalCost: Math.round(totalCost),
+      P: Math.round(P),
+      memberRevenue: Math.round(memberRevenue),
+      generalRevenue: Math.round(generalRevenue),
+      totalRevenue: Math.round(totalRevenue),
+      totalAppraisalValue: Math.round(z.total_appraisal_value),
+      appraisalMethodDetail:
+        landShareSqm > 0 && z.land_official_price_per_sqm ? "대지지분+공시지가" :
+        officialValuation > 0 ? "공시가×감평율" : "매수가÷1.3",
+    },
   };
 }
 
