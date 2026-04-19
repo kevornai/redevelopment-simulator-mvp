@@ -21,10 +21,15 @@ function makeZoneId(sigunNm: string, zoneName: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const debug = new URL(req.url).searchParams.get("debug") === "1";
   try {
     const rows: GRow[] = await req.json();
     if (!Array.isArray(rows) || rows.length === 0) {
       return NextResponse.json({ saved: 0, error: "rows가 비어있습니다." });
+    }
+    // ?debug=1 → 첫 번째 row의 키 목록만 반환
+    if (debug) {
+      return NextResponse.json({ keys: Object.keys(rows[0]), sample: rows[0] });
     }
 
     const supabase = await createClient();
