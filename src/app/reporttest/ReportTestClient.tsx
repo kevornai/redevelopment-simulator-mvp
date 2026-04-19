@@ -138,7 +138,7 @@ function CashFlowTimeline({ flows }: { flows: StageCashFlow[] }) {
 // 시나리오 카드
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ScenarioCard({ r, desiredPyung }: { r: ScenarioResult; desiredPyung: number }) {
+function ScenarioCard({ r, desiredPyung, stageLabel }: { r: ScenarioResult; desiredPyung: number; stageLabel?: string }) {
   const [expanded, setExpanded] = useState(false);
   const st = S[r.scenarioType];
   const isProfit = r.netProfit >= 0;
@@ -279,6 +279,18 @@ function ScenarioCard({ r, desiredPyung }: { r: ScenarioResult; desiredPyung: nu
                 }
                 value={`${fMonth(r.appliedMonths)} (착공까지 ${fMonth(r.monthsToConstructionStart)})`}
               />
+              <Row
+                label="현재 단계"
+                value={
+                  stageLabel
+                    ? r.calcBreakdown.stageElapsedMonths != null
+                      ? `${stageLabel} · ${r.calcBreakdown.stageElapsedMonths}개월 째`
+                      : `${stageLabel} · 날짜 없음`
+                    : "—"
+                }
+                indent
+                color={r.calcBreakdown.stageElapsedMonths != null ? "text-blue-600" : "text-zinc-400"}
+              />
             </Section>
 
             {/* 단계별 현금흐름 */}
@@ -304,6 +316,16 @@ function Row({
     </div>
   );
 }
+
+const STAGE_LABEL: Record<string, string> = {
+  zone_designation:       "구역지정",
+  basic_plan:             "기본계획",
+  project_implementation: "사업시행인가",
+  management_disposal:    "관리처분인가",
+  relocation:             "이주·철거",
+  construction_start:     "착공",
+  completion:             "준공",
+};
 
 /** 데이터 출처 배지 — 어떤 값이 공표값/추정값/수동입력인지 표시 */
 const SOURCE_BADGE_CONFIG = {
@@ -1059,12 +1081,20 @@ export default function ReportTestClient() {
                   const b = result.neutral.calcBreakdown;
                   const fmt억 = (v: number) => `${(v / 1e8).toFixed(1)}억`;
                   const fmt만 = (v: number) => `${(v / 1e4).toFixed(0)}만`;
+                  const stageLabel = STAGE_LABEL[dbZones.find(z => z.zone_id === form.zoneId)?.project_stage ?? ""] ?? "";
                   return (
                     <div className="mt-2 font-mono text-xs text-zinc-600 space-y-3">
 
                       {/* Step 1 */}
                       <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
-                        <div className="font-semibold text-zinc-700 mb-1">① 사업기간</div>
+                        <div className="font-semibold text-zinc-700 mb-1 flex items-center gap-2">
+                          ① 사업기간
+                          {stageLabel && (
+                            <span className={`font-normal text-xs px-1.5 py-0.5 rounded ${b.stageElapsedMonths != null ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-400"}`}>
+                              {b.stageElapsedMonths != null ? `${stageLabel} ${b.stageElapsedMonths}개월 째` : `${stageLabel} · 날짜 없음`}
+                            </span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
                           {b.stageElapsedMonths != null && (
                             <>
@@ -1396,10 +1426,18 @@ export default function ReportTestClient() {
               const b = result.neutral.calcBreakdown;
               const fmt억 = (v: number) => `${(v / 1e8).toFixed(1)}억`;
               const fmt만 = (v: number) => `${(v / 1e4).toFixed(0)}만`;
+              const stageLabel = STAGE_LABEL[dbZones.find(z => z.zone_id === form.zoneId)?.project_stage ?? ""] ?? "";
               return (
                 <div className="p-4 font-mono text-xs text-zinc-600 space-y-3">
                   <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
-                    <div className="font-semibold text-zinc-700 mb-1">① 사업기간</div>
+                    <div className="font-semibold text-zinc-700 mb-1 flex items-center gap-2">
+                      ① 사업기간
+                      {stageLabel && (
+                        <span className={`font-normal text-xs px-1.5 py-0.5 rounded ${b.stageElapsedMonths != null ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-400"}`}>
+                          {b.stageElapsedMonths != null ? `${stageLabel} ${b.stageElapsedMonths}개월 째` : `${stageLabel} · 날짜 없음`}
+                        </span>
+                      )}
+                    </div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
                       {b.stageElapsedMonths != null ? (<>
                         <span className="text-zinc-400">단계 시작일</span><span className="text-blue-600">{result.debugParams.stageStartDate ?? "—"}</span>
@@ -1479,9 +1517,14 @@ export default function ReportTestClient() {
                 <ComparisonTable result={result} />
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <ScenarioCard r={result.optimistic} desiredPyung={result.input.desiredPyung} />
-                <ScenarioCard r={result.neutral} desiredPyung={result.input.desiredPyung} />
-                <ScenarioCard r={result.pessimistic} desiredPyung={result.input.desiredPyung} />
+                {(() => {
+                  const sl = STAGE_LABEL[dbZones.find(z => z.zone_id === form.zoneId)?.project_stage ?? ""] ?? "";
+                  return (<>
+                    <ScenarioCard r={result.optimistic}  desiredPyung={result.input.desiredPyung} stageLabel={sl} />
+                    <ScenarioCard r={result.neutral}     desiredPyung={result.input.desiredPyung} stageLabel={sl} />
+                    <ScenarioCard r={result.pessimistic} desiredPyung={result.input.desiredPyung} stageLabel={sl} />
+                  </>);
+                })()}
               </div>
             </div>
           </details>
