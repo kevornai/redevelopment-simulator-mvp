@@ -750,73 +750,53 @@ function resolveZoneParams(
   };
 }
 
-// ─── 경기도 정비사업 현황 API — 실시간 단계 날짜 조회 ─────────────────────────
+// ─── 단계 날짜 조회 — stage_timeline_raw DB 캐시 (IP 제한 없음) ────────────────
 
-
-function parseDateStr(d: string | null | undefined): string | null {
-  if (!d) return null;
-  const full = d.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
-  if (full) return `${full[1]}-${full[2].padStart(2, "0")}-${full[3].padStart(2, "0")}`;
-  const ym = d.match(/(\d{4})[.\-\/](\d{1,2})/);
-  if (ym) return `${ym[1]}-${ym[2].padStart(2, "0")}-01`;
-  return null;
-}
-
-interface GyeonggiResult extends Pick<ZoneData,
+interface StageDateResult extends Pick<ZoneData,
   "zone_designation_date" | "association_approval_date" |
   "project_implementation_date" | "management_disposal_date" | "construction_start_date"
 > {
   matchedZoneName: string;
 }
 
-/** 경기도 API에서 구역의 단계 날짜 조회 */
-async function fetchGyeonggiStageDates(
+/**
+ * stage_timeline_raw에서 구역의 단계 날짜 조회
+ * - cleansys.or.kr 및 경기도 API 배치 데이터를 DB 캐시에서 읽음 (IP 제한 없음)
+ * - zone_name 마지막 _ 이후 키워드로 ILIKE 검색
+ */
+async function fetchStageDatesFromCache(
   zoneName: string,
-  lawdCd: string | null,
-): Promise<GyeonggiResult | null> {
-  const apiKey = process.env.GYEONGGI_OPEN_API_KEY ?? "6f7cae6f12fb49dea44a0f30e1611919";
-  // lawd_cd 앞 2자리가 "41" = 경기도
-  if (!lawdCd?.startsWith("41")) return null;
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<StageDateResult | null> {
+  const keyTerm = zoneName.includes("_") ? zoneName.split("_").pop()! : zoneName;
+  if (!keyTerm || keyTerm.length < 2) return null;
 
   try {
-    // SIGUN_CD로 해당 시군 필터 → 전체 결과에서 구역명 클라이언트 매칭
-    const sigunCd = lawdCd.slice(0, 5);
-    const params = new URLSearchParams({
-      KEY: apiKey, Type: "json", pIndex: "1", pSize: "100",
-      SIGUN_CD: sigunCd,
+    const { data } = await supabase
+      .from("stage_timeline_raw")
+      .select("zone_name,date_zone_designation,date_association,date_implementation,date_management_disposal,date_construction_start")
+      .ilike("zone_name", `%${keyTerm}%`)
+      .limit(5);
+
+    if (!data?.length) return null;
+
+    // 여러 건 중 날짜가 가장 많이 채워진 row 선택
+    const best = data.reduce((a, b) => {
+      const score = (r: typeof data[0]) =>
+        (r.date_management_disposal ? 2 : 0) +
+        (r.date_implementation ? 2 : 0) +
+        (r.date_construction_start ? 1 : 0) +
+        (r.date_zone_designation ? 1 : 0);
+      return score(a) >= score(b) ? a : b;
     });
-
-    const res = await fetch(`https://openapi.gg.go.kr/GenrlimprvBizpropls?${params}`, {
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return null;
-
-    const data = await res.json() as { GenrlimprvBizpropls?: unknown[] };
-    const root = data?.GenrlimprvBizpropls ?? [];
-    if (!Array.isArray(root) || root.length < 2) return null;
-
-    type GRow = {
-      IMPRV_ZONE_NM: string;
-      IMPRV_ZONE_APPONT_FIRST_DE?: string | null;
-      ASSOCTN_FOUND_CONFMTN_DE?: string | null;
-      BIZ_IMPLMTN_CONFMTN_DE?: string | null;
-      MANAGE_DISPOSIT_CONFMTN_DE?: string | null;
-      STRCONTR_DE?: string | null;
-    };
-    const rows: GRow[] = ((root[1] as { row?: GRow[] }).row) ?? [];
-
-    // zone_name에서 핵심 키워드 추출 (마지막 _ 이후 또는 전체)
-    const keyTerm = zoneName.includes("_") ? zoneName.split("_").pop()! : zoneName;
-    const matched = rows.find(r => r.IMPRV_ZONE_NM.includes(keyTerm));
-    if (!matched) return null;
 
     return {
-      matchedZoneName:             matched.IMPRV_ZONE_NM,
-      zone_designation_date:       parseDateStr(matched.IMPRV_ZONE_APPONT_FIRST_DE),
-      association_approval_date:   parseDateStr(matched.ASSOCTN_FOUND_CONFMTN_DE),
-      project_implementation_date: parseDateStr(matched.BIZ_IMPLMTN_CONFMTN_DE),
-      management_disposal_date:    parseDateStr(matched.MANAGE_DISPOSIT_CONFMTN_DE),
-      construction_start_date:     parseDateStr(matched.STRCONTR_DE),
+      matchedZoneName:             best.zone_name as string,
+      zone_designation_date:       best.date_zone_designation as string | null,
+      association_approval_date:   best.date_association as string | null,
+      project_implementation_date: best.date_implementation as string | null,
+      management_disposal_date:    best.date_management_disposal as string | null,
+      construction_start_date:     best.date_construction_start as string | null,
     };
   } catch {
     return null;
@@ -862,13 +842,13 @@ export async function calculateAnalysis(
   // Step 3: DB + 추정값 병합 (API 오버라이드 전 기준값)
   let zForApi: ZoneData = { ...baseZone, ...estimatedOverrides };
 
-  // Step 3b: 단계 날짜 자동 보완 — 경기도 구역은 경기도 API에서 실시간 조회
+  // Step 3b: 단계 날짜 자동 보완 — stage_timeline_raw DB 캐시에서 조회 (IP 제한 없음)
   const needsDateFetch =
     !zForApi.zone_designation_date || !zForApi.project_implementation_date ||
     !zForApi.management_disposal_date || !zForApi.construction_start_date;
   let gyeonggiApiMatchedZone: string | null = null;
   if (needsDateFetch && zoneName) {
-    const gyeonggiDates = await fetchGyeonggiStageDates(zoneName, zForApi.lawd_cd);
+    const gyeonggiDates = await fetchStageDatesFromCache(zoneName, supabase);
     if (gyeonggiDates) {
       gyeonggiApiMatchedZone = gyeonggiDates.matchedZoneName;
       zForApi = {

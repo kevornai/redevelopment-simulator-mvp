@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { sendMarketingEmail } from '@/app/actions/adminEmail';
+import { saveGyeonggiRows, type GyeonggiApiRow } from '@/app/actions/syncStageTimeline';
 
 const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? '1111';
 
@@ -17,6 +18,42 @@ export default function AdminPage() {
 
   const [status, setStatus] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
   const [result, setResult] = useState<{ sent?: number; error?: string } | null>(null);
+
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'fetching' | 'saving' | 'done' | 'error'>('idle');
+  const [syncResult, setSyncResult] = useState<{ saved?: number; synced?: number; error?: string } | null>(null);
+
+  async function handleGyeonggiSync() {
+    setSyncStatus('fetching');
+    setSyncResult(null);
+    try {
+      const API_KEY = '6f7cae6f12fb49dea44a0f30e1611919';
+      const allRows: GyeonggiApiRow[] = [];
+      let page = 1;
+      let total = Infinity;
+
+      while (allRows.length < total) {
+        const url = `https://openapi.gg.go.kr/GenrlimprvBizpropls?KEY=${API_KEY}&Type=json&pIndex=${page}&pSize=100`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const root = data?.GenrlimprvBizpropls ?? [];
+        if (!root || root.length < 2) break;
+        if (total === Infinity) total = root[0]?.head?.[0]?.list_total_count ?? 0;
+        const rows = root[1]?.row ?? [];
+        if (!rows.length) break;
+        allRows.push(...rows);
+        page++;
+      }
+
+      setSyncStatus('saving');
+      const saveResult = await saveGyeonggiRows(allRows);
+      setSyncResult(saveResult);
+      setSyncStatus(saveResult.error ? 'error' : 'done');
+    } catch (e) {
+      setSyncResult({ error: String(e) });
+      setSyncStatus('error');
+    }
+  }
 
   function handleLogin() {
     if (pw === ADMIN_PASSWORD) {
@@ -75,8 +112,35 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 px-4 py-12">
-      <div className="max-w-2xl mx-auto">
-        <div className="mb-8">
+      <div className="max-w-2xl mx-auto space-y-8">
+
+        {/* 경기도 단계 날짜 동기화 */}
+        <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-6">
+          <h2 className="text-zinc-900 font-bold text-lg mb-1">경기도 단계 날짜 동기화</h2>
+          <p className="text-zinc-400 text-sm mb-4">
+            경기도 데이터드림 API → stage_timeline_raw → zones_data 순으로 단계별 날짜를 업데이트합니다.<br/>
+            <span className="text-amber-500">한국 IP에서만 동작합니다. (경기도 API 해외 IP 차단)</span>
+          </p>
+          <button
+            onClick={handleGyeonggiSync}
+            disabled={syncStatus === 'fetching' || syncStatus === 'saving'}
+            className="h-11 px-6 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-colors"
+          >
+            {syncStatus === 'fetching' ? '경기도 API 수집 중...' : syncStatus === 'saving' ? 'DB 저장 중...' : '경기도 데이터 동기화'}
+          </button>
+          {syncStatus === 'done' && syncResult && (
+            <div className="mt-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
+              ✅ 수집 {syncResult.saved}건 저장 · zones_data {syncResult.synced}건 업데이트
+            </div>
+          )}
+          {syncStatus === 'error' && (
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
+              ❌ {syncResult?.error}
+            </div>
+          )}
+        </div>
+
+        <div>
           <h1 className="text-zinc-900 font-bold text-2xl mb-1">마케팅 이메일 발송</h1>
           <p className="text-zinc-400 text-sm">
             <code className="bg-zinc-100 px-1 rounded text-xs">marketing_consent = true</code> 유저 전체에게 발송됩니다.
