@@ -146,6 +146,28 @@ export interface ScenarioResult {
     totalRevenue: number;             // 총분양수익 (원)
     // 비례율
     totalAppraisalValue: number;      // 총종전자산 (원)
+    landOfficialPricePerSqm: number | null;  // 공시지가 (원/㎡)
+    priorAssetMethodUsed: string;     // 종전자산 추정 방법
+    // 사업기간 상세
+    stageElapsedMonths: number | null; // 현재 단계 경과 개월
+    monthsToStartRaw: number;          // 경과분 차감 전 착공까지 개월
+    // 총연면적 유도
+    zoneAreaSqm: number | null;
+    floorAreaRatioNew: number | null;
+    totalFloorAreaSqm: number;         // ㎡ 단위
+    // 분양면적 세대수 상세
+    saleUnitsU40: number | null;
+    saleUnitsC40_60: number | null;
+    saleUnitsC60_85: number | null;
+    saleUnitsC85_135: number | null;
+    saleUnitsO135: number | null;
+    plannedUnitsMember: number | null;
+    plannedUnitsGeneral: number | null;
+    memberSaleRatio: number | null;    // 조합원면적 비율
+    // 조합원분양가 역산 상세 (Option B)
+    memberSaleInverseGeneralRevenue: number | null;
+    memberSaleInverseTotalCost: number | null;
+    memberSaleInverseTotalAppraisal: number | null;
     // 개인 감정평가
     appraisalMethodDetail: string;    // 감정평가 방법 설명
   };
@@ -190,12 +212,23 @@ export interface CalculationResult {
     buildingFloorAreaFAR: number | null;
     projectStageRank: number;
     saleAreaSource: "calculated" | "db" | "missing";
-    missingSaleAreaFields: string[];  // 계산 불가 시 누락된 필드 목록
-    // 종전자산 추정 방법별 값 (비교용 — 모두 계산)
-    priorAssetMethod1: number | null;  // 세대수 × 공시가 × 감평율 (원)
-    priorAssetMethod2: number | null;  // 구축 실거래 역산 (원)
-    priorAssetMethod3: number | null;  // 구역공시지가 × 1.5 (원)
-    priorAssetMethodUsed: string;      // 실제 사용된 방법
+    missingSaleAreaFields: string[];
+    // 종전자산 추정 방법별 값
+    priorAssetMethod1: number | null;
+    priorAssetMethod2: number | null;
+    priorAssetMethod3: number | null;
+    priorAssetMethodUsed: string;
+    // 세대수 · 구역 상세
+    new_units_sale_u40: number | null;
+    new_units_sale_40_60: number | null;
+    new_units_sale_60_85: number | null;
+    new_units_sale_85_135: number | null;
+    new_units_sale_o135: number | null;
+    zone_area_sqm: number | null;
+    floor_area_ratio_new: number | null;
+    land_official_price_per_sqm: number | null;
+    stageElapsedMonths: number | null;
+    stageStartDate: string | null;
   };
   /** 비정상 값 감지 시 경고 메시지 (결과는 유지) */
   warnings: string[];
@@ -266,6 +299,12 @@ interface ZoneData {
   new_units_sale_85_135: number | null;
   new_units_sale_o135: number | null;
   new_units_sale_total: number | null;
+  // 단계별 진행 날짜 (경과 개월 계산용)
+  zone_designation_date: string | null;
+  association_approval_date: string | null;
+  project_implementation_date: string | null;
+  management_disposal_date: string | null;
+  construction_start_date: string | null;
 }
 
 // ─── 단계 순서 (낮을수록 초기 단계) ───────────────────────────────────────────
@@ -612,6 +651,30 @@ function resolveZoneParams(
     total_floor_area = z.zone_area_sqm * (z.floor_area_ratio_new / 100);
   }
 
+  // ── 단계 경과 개월 계산 — construction_start_announced_ym 없을 때 stage 날짜로 보정
+  const stageToDateMap: Record<string, string | null | undefined> = {
+    zone_designation:       z.zone_designation_date,
+    project_implementation: z.project_implementation_date,
+    management_disposal:    z.management_disposal_date,
+    relocation:             z.management_disposal_date, // 이주는 관리처분 이후
+    construction_start:     z.construction_start_date,
+  };
+  const stageStartDateRaw = stageToDateMap[z.project_stage] ?? null;
+  let stageElapsedMonths: number | null = null;
+  const monthsToConstructionRaw = months_to_construction_start;
+  let months_to_construction_adjusted = months_to_construction_start;
+  let months_p25_adjusted = months_p25;
+  let months_p75_adjusted = months_p75;
+  if (stageStartDateRaw && !z.construction_start_announced_ym) {
+    const elapsed = Math.max(0, Math.round(
+      (Date.now() - new Date(stageStartDateRaw).getTime()) / (1000 * 60 * 60 * 24 * 30.44)
+    ));
+    stageElapsedMonths = elapsed;
+    months_to_construction_adjusted = Math.max(0, months_to_construction_start - elapsed);
+    months_p25_adjusted = Math.max(0, months_p25 - elapsed);
+    months_p75_adjusted = Math.max(0, months_p75 - elapsed);
+  }
+
   // 조합원/일반분양 면적 계산
   // 방법 A: 평형별 세대수 × 공급면적 합산 → 조합원/일반 비율 분배
   // 세대수 데이터 없으면 fallback 없이 "missing" 처리 — UI에서 공란 표시
@@ -662,22 +725,26 @@ function resolveZoneParams(
     mdd_local,
     neighbor_new_apt_price,
     avg_appraisal_rate,
-    months_to_construction_start,
+    months_to_construction_start: months_to_construction_adjusted,
     member_sale_price_per_pyung,
     total_floor_area,
     member_sale_area,
     general_sale_area,
     trendSlopePerMonth,
     monthlyStdDev,
-    months_p25,
-    months_p75,
+    months_p25: months_p25_adjusted,
+    months_p75: months_p75_adjusted,
     _derivedSiteAreaSqm,
     _existingFAR,
+    _priorAssetMethodUsed: "",  // calculateAnalysis에서 priorAssetBreakdown 후 override
     _derivedSources: {
       monthsToConstruction: months_to_construction_source,
       memberSalePrice: member_sale_price_source,
       saleAreaSource,
       missingSaleAreaFields,
+      stageElapsedMonths,
+      stageStartDate: stageStartDateRaw ?? null,
+      monthsToConstructionRaw,
     },
   };
 }
@@ -735,6 +802,7 @@ export async function calculateAnalysis(
 
   // Step 5b: API 데이터로 Zone 상수 오버라이드 (nearbyNewAptPrice → p_base/peak_local/neighbor)
   const apiResolved = resolveZoneParams(zForApi, marketData, input.desiredPyung, stagePercentiles) as ResolvedZoneData;
+  apiResolved._priorAssetMethodUsed = priorAssetBreakdown.methodUsed;
 
   // Step 6: 관리자 명시 입력값 최우선 적용 (API 값을 덮어씀)
   // 관리자가 직접 입력한 값은 어떤 자동화 값보다 우선
@@ -816,6 +884,16 @@ export async function calculateAnalysis(
         priorAssetMethod2: priorAssetBreakdown.method2,
         priorAssetMethod3: priorAssetBreakdown.method3,
         priorAssetMethodUsed: priorAssetBreakdown.methodUsed,
+        new_units_sale_u40: baseZone.new_units_sale_u40,
+        new_units_sale_40_60: baseZone.new_units_sale_40_60,
+        new_units_sale_60_85: baseZone.new_units_sale_60_85,
+        new_units_sale_85_135: baseZone.new_units_sale_85_135,
+        new_units_sale_o135: baseZone.new_units_sale_o135,
+        zone_area_sqm: baseZone.zone_area_sqm,
+        floor_area_ratio_new: baseZone.floor_area_ratio_new,
+        land_official_price_per_sqm: baseZone.land_official_price_per_sqm,
+        stageElapsedMonths: resolvedZ._derivedSources.stageElapsedMonths,
+        stageStartDate: resolvedZ._derivedSources.stageStartDate,
       },
       warnings,
       calculatedAt: new Date().toISOString(),
@@ -834,6 +912,9 @@ type ResolvedZoneData = ZoneData & {
     memberSalePrice: "announced" | "manual" | "cost_estimated";
     saleAreaSource: "calculated" | "db" | "missing";
     missingSaleAreaFields: string[];
+    stageElapsedMonths: number | null;
+    stageStartDate: string | null;
+    monthsToConstructionRaw: number;  // 경과분 차감 전 원본값
   };
   /** 볼린저 밴드용 OLS 추세 (원/평/월). 0이면 데이터 없음 */
   trendSlopePerMonth: number;
@@ -847,6 +928,8 @@ type ResolvedZoneData = ZoneData & {
   _derivedSiteAreaSqm: number | null;
   /** 신축 연면적 역산용: 건축물대장 기존 용적률 */
   _existingFAR: number | null;
+  /** 종전자산 추정 방법 (debugParams 전달용) */
+  _priorAssetMethodUsed: string;
 };
 
 function computeScenario(
@@ -1262,6 +1345,26 @@ function computeScenario(
       generalRevenue: Math.round(generalRevenue),
       totalRevenue: Math.round(totalRevenue),
       totalAppraisalValue: Math.round(z.total_appraisal_value),
+      landOfficialPricePerSqm: z.land_official_price_per_sqm ?? null,
+      priorAssetMethodUsed: z._priorAssetMethodUsed,
+      stageElapsedMonths: z._derivedSources.stageElapsedMonths,
+      monthsToStartRaw: z._derivedSources.monthsToConstructionRaw,
+      zoneAreaSqm: z.zone_area_sqm ?? null,
+      floorAreaRatioNew: z.floor_area_ratio_new ?? null,
+      totalFloorAreaSqm: Math.round(z.total_floor_area),
+      saleUnitsU40: z.new_units_sale_u40,
+      saleUnitsC40_60: z.new_units_sale_40_60,
+      saleUnitsC60_85: z.new_units_sale_60_85,
+      saleUnitsC85_135: z.new_units_sale_85_135,
+      saleUnitsO135: z.new_units_sale_o135,
+      plannedUnitsMember: z.planned_units_member,
+      plannedUnitsGeneral: z.planned_units_general,
+      memberSaleRatio: (memberSaleAreaPyung + generalSaleAreaPyung) > 0
+        ? Math.round(memberSaleAreaPyung / (memberSaleAreaPyung + generalSaleAreaPyung) * 1000) / 1000
+        : null,
+      memberSaleInverseGeneralRevenue: memberSalePriceMethod === "prop_rate_inverse" ? Math.round(generalRevenue) : null,
+      memberSaleInverseTotalCost: memberSalePriceMethod === "prop_rate_inverse" ? Math.round(totalCost) : null,
+      memberSaleInverseTotalAppraisal: memberSalePriceMethod === "prop_rate_inverse" ? Math.round(z.total_appraisal_value) : null,
       appraisalMethodDetail:
         landShareSqm > 0 && z.land_official_price_per_sqm ? "대지지분+공시지가" :
         officialValuation > 0 ? "공시가×감평율" : "매수가÷1.3",
