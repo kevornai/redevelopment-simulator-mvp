@@ -124,7 +124,11 @@ export interface ScenarioResult {
     W: number;                        // 지수평활 감쇠계수
     appliedMonthlyRate: number;       // 적용 월 인상률
     C_T: number;                      // 착공시 예측 평당 공사비 (원)
-    // 연면적
+    // 연면적 (역산 과정)
+    existingFloorAreaSqm: number | null;  // 기존 연면적 (건축물대장)
+    existingFAR: number | null;           // 기존 용적률 (건축물대장)
+    derivedSiteAreaSqm: number | null;    // 역산 대지면적 = 기존연면적 ÷ 기존용적률
+    newFAR: number | null;                // 신축 용적률
     totalFloorAreaPyung: number;      // 신축 총연면적 (평)
     generalSaleAreaPyung: number;     // 일반분양 면적 (평)
     memberSaleAreaPyung: number;      // 조합원분양 면적 (평)
@@ -135,6 +139,8 @@ export interface ScenarioResult {
     totalCost: number;                // 총사업비 (원)
     // 분양수익
     P: number;                        // 일반분양가 (원/평)
+    memberSalePricePerPyung: number;  // 조합원분양가 (원/평)
+    memberSalePriceMethod: "announced" | "manual" | "discount_estimated" | "prop_rate_inverse"; // 결정 방식
     memberRevenue: number;            // 조합원분양수익 (원)
     generalRevenue: number;           // 일반분양수익 (원)
     totalRevenue: number;             // 총분양수익 (원)
@@ -589,10 +595,22 @@ function resolveZoneParams(
     ? (market.nearbyNewAptPrice!.monthlyStdDev ?? 0)
     : (molitOk ? (market.localPrice!.monthlyStdDev ?? 0) : 0);
 
-  // 연면적: 건축물대장 API 값 우선 (DB 기본값 200,000㎡ 대체)
-  const total_floor_area = market.buildingFloorArea?.fromApi && market.buildingFloorArea.totalFloorArea > 0
-    ? market.buildingFloorArea.totalFloorArea
-    : z.total_floor_area;
+  // 신축 총연면적 역산: 기존연면적(건축물대장) ÷ 기존용적률 = 대지면적 → × 신축용적률
+  // (건축물대장 API가 반환하는 값은 기존 건물 연면적 — 신축 계획 연면적과 다름)
+  let _derivedSiteAreaSqm: number | null = null;
+  let _existingFAR: number | null = null;
+  let total_floor_area = z.total_floor_area; // DB fallback
+
+  const bfa = market.buildingFloorArea;
+  if (bfa?.fromApi && bfa.totalFloorArea > 0 && bfa.floorAreaRatio && bfa.floorAreaRatio > 0
+      && z.floor_area_ratio_new && z.floor_area_ratio_new > 0) {
+    _existingFAR = bfa.floorAreaRatio;
+    _derivedSiteAreaSqm = bfa.totalFloorArea / (bfa.floorAreaRatio / 100);
+    total_floor_area = _derivedSiteAreaSqm * (z.floor_area_ratio_new / 100);
+  } else if (z.zone_area_sqm && z.floor_area_ratio_new) {
+    // 건축물대장 없으면 구역면적 × 신축용적률 fallback
+    total_floor_area = z.zone_area_sqm * (z.floor_area_ratio_new / 100);
+  }
 
   // 조합원/일반분양 면적 계산
   // 방법 A (우선): 평형별 세대수 분포로 총 분양면적 산출 → 조합원/일반 비율 분배
@@ -610,12 +628,13 @@ function resolveZoneParams(
     // 방법 A: 평형 중간값 × 세대수 합산 → 총 분양면적
     // 분모는 new_units_sale_total 대신 planned_units_member + planned_units_general 사용
     // (엑셀 신축분양세대수합계 데이터 불일치 방지)
+    // 공급면적 대표값 (전용→공급 변환)
     const totalSaleArea =
-      (z.new_units_sale_u40     ?? 0) * 30    +
-      (z.new_units_sale_40_60   ?? 0) * 50    +
-      (z.new_units_sale_60_85   ?? 0) * 72.5  +
-      (z.new_units_sale_85_135  ?? 0) * 110   +
-      (z.new_units_sale_o135    ?? 0) * 150;
+      (z.new_units_sale_u40     ?? 0) * 53    +  // 전용39㎡  → 공급53㎡
+      (z.new_units_sale_40_60   ?? 0) * 80    +  // 전용59㎡  → 공급80㎡
+      (z.new_units_sale_60_85   ?? 0) * 97    +  // 전용72.5㎡→ 공급97㎡
+      (z.new_units_sale_85_135  ?? 0) * 149   +  // 전용114㎡ → 공급149㎡
+      (z.new_units_sale_o135    ?? 0) * 196;     // 전용150㎡ → 공급196㎡
     const totalUnits = z.planned_units_member + z.planned_units_general;
     const memberRatio = totalUnits > 0 ? z.planned_units_member / totalUnits : 1;
     member_sale_area  = totalSaleArea * memberRatio;
@@ -657,6 +676,8 @@ function resolveZoneParams(
     monthlyStdDev,
     months_p25,
     months_p75,
+    _derivedSiteAreaSqm,
+    _existingFAR,
     _derivedSources: {
       monthsToConstruction: months_to_construction_source,
       memberSalePrice: member_sale_price_source,
@@ -827,6 +848,10 @@ type ResolvedZoneData = ZoneData & {
   months_p25: number;
   /** 착공까지 기간 P75 (비관 T 계산용) */
   months_p75: number;
+  /** 신축 연면적 역산용: 역산 대지면적 (기존연면적 ÷ 기존용적률). null이면 역산 안 됨 */
+  _derivedSiteAreaSqm: number | null;
+  /** 신축 연면적 역산용: 건축물대장 기존 용적률 */
+  _existingFAR: number | null;
 };
 
 function computeScenario(
@@ -960,13 +985,35 @@ function computeScenario(
   const memberSaleAreaPyung   = z.member_sale_area / 3.3058;
 
   const totalConstructionCost  = C_T * totalFloorAreaPyung;
-  const baseBusinessExpense    = totalConstructionCost * 0.15;
+  const baseBusinessExpense    = totalConstructionCost * (1 / 3); // 순수75%/기타25% 비율 → 기타 = 순수 × 1/3
   const financialCost          =
     totalConstructionCost * z.pf_loan_ratio * (z.annual_pf_rate / 12) * T;
   const totalCost = totalConstructionCost + baseBusinessExpense + financialCost;
 
-  const memberRevenue  = z.member_sale_price_per_pyung * memberSaleAreaPyung;
+  // ── 조합원분양가 결정 방식 ────────────────────────────────────────────────
+  // Option A (zone_designation / association_established): 시세 × 할인율 추정 (resolveZoneParams에서 이미 계산)
+  // Option B (project_implementation, 추정값): 목표 비례율(100%) 역산
+  //   조합원분양가 = (목표비례율 × 종전자산 - 일반분양수입 + 총사업비) / 조합원면적
   const generalRevenue = P * generalSaleAreaPyung;
+  let memberSalePricePerPyung = z.member_sale_price_per_pyung;
+  let memberSalePriceMethod: "announced" | "manual" | "discount_estimated" | "prop_rate_inverse" = "discount_estimated";
+
+  if (z.member_sale_price_source !== "cost_estimated") {
+    // 확정값 또는 수동 입력: 그대로 사용
+    memberSalePriceMethod = z.member_sale_price_source as "announced" | "manual";
+  } else if (z.project_stage === "project_implementation" && memberSaleAreaPyung > 0 && z.total_appraisal_value > 0) {
+    // Option B: 사업시행인가 단계 — 목표비례율(100%) 역산
+    const targetPropRate = 1.0;
+    memberSalePricePerPyung = Math.max(0,
+      (targetPropRate * z.total_appraisal_value - generalRevenue + totalCost) / memberSaleAreaPyung
+    );
+    memberSalePriceMethod = "prop_rate_inverse";
+  } else {
+    // Option A: 구역지정 / 조합설립 단계 — 시세 × 할인율
+    memberSalePriceMethod = "discount_estimated";
+  }
+
+  const memberRevenue  = memberSalePricePerPyung * memberSaleAreaPyung;
   const totalRevenue   = generalRevenue + memberRevenue;
 
   // 비례율: (총수입 - 총사업비) / 총종전평가액
@@ -1202,6 +1249,10 @@ function computeScenario(
       W: Math.round(W * 1000) / 1000,
       appliedMonthlyRate: Math.round(appliedMonthlyRate * 100000) / 100000,
       C_T: Math.round(C_T),
+      existingFloorAreaSqm: (z._derivedSiteAreaSqm != null && z._existingFAR != null) ? Math.round(z._derivedSiteAreaSqm * (z._existingFAR / 100)) : null,
+      existingFAR: z._existingFAR ?? null,
+      derivedSiteAreaSqm: z._derivedSiteAreaSqm != null ? Math.round(z._derivedSiteAreaSqm) : null,
+      newFAR: z.floor_area_ratio_new ?? null,
       totalFloorAreaPyung: Math.round(totalFloorAreaPyung * 10) / 10,
       generalSaleAreaPyung: Math.round(generalSaleAreaPyung * 10) / 10,
       memberSaleAreaPyung: Math.round(memberSaleAreaPyung * 10) / 10,
@@ -1210,6 +1261,8 @@ function computeScenario(
       financialCost: Math.round(financialCost),
       totalCost: Math.round(totalCost),
       P: Math.round(P),
+      memberSalePricePerPyung: Math.round(memberSalePricePerPyung),
+      memberSalePriceMethod,
       memberRevenue: Math.round(memberRevenue),
       generalRevenue: Math.round(generalRevenue),
       totalRevenue: Math.round(totalRevenue),

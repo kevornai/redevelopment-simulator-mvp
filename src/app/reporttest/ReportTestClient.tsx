@@ -337,6 +337,46 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 // 비교 요약 테이블
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 할인율 매트릭스
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DISCOUNT_RATES = [5, 10, 15, 20, 25, 30] as const;
+
+function computeMatrixCell(
+  b: ScenarioResult["calcBreakdown"],
+  discountPct: number,
+  personalAppraisal: number,
+  desiredPyung: number,
+) {
+  const memberSalePrice = b.P * (1 - discountPct / 100);
+  const memberRevenue = memberSalePrice * b.memberSaleAreaPyung;
+  const totalRevenue = b.generalRevenue + memberRevenue;
+  const propRate = b.totalAppraisalValue > 0
+    ? (totalRevenue - b.totalCost) / b.totalAppraisalValue * 100
+    : 0;
+  const rightsValue = personalAppraisal * (propRate / 100);
+  const contribution = memberSalePrice * desiredPyung - rightsValue;
+  return { propRate, contribution };
+}
+
+function propRateCls(r: number, isNeutral = false): string {
+  const c =
+    r >= 115 ? "text-blue-700 bg-blue-50" :
+    r >= 100 ? "text-green-700 bg-green-50" :
+    r >=  85 ? "text-yellow-700 bg-yellow-50" :
+               "text-red-700 bg-red-50";
+  return isNeutral ? c.replace("50", "100") + " font-bold" : c;
+}
+
+function fmtContrib(c: number): string {
+  const abs = Math.abs(c);
+  const str = abs >= 1e8 ? `${(abs / 1e8).toFixed(1)}억` : `${(abs / 1e4).toFixed(0)}만`;
+  return c < 0 ? `수령 ${str}` : `납부 ${str}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function ComparisonTable({ result }: { result: CalculationResult }) {
   const rows: Array<{ label: string; key: keyof ScenarioResult; format: (v: number) => string; color?: boolean }> = [
     { label: "사업 기간",       key: "appliedMonths",            format: fMonth },
@@ -429,7 +469,6 @@ export default function ReportTestClient() {
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"cards" | "table">("cards");
   const [adminOpen, setAdminOpen] = useState(false);
   const [pyungUnit, setPyungUnit] = useState<"pyung" | "sqm">("pyung");
   const [sqmRaw, setSqmRaw] = useState<string>("");
@@ -893,8 +932,19 @@ export default function ReportTestClient() {
       )}
 
       {/* 결과 */}
-      {result && (
-        <div className="flex flex-col gap-6">
+      {result && (() => {
+        const personalAppraisal = result.neutral.estimatedAppraisalValue;
+        const desiredPyung = result.input.desiredPyung;
+        const bn = result.neutral.calcBreakdown;
+        const matrixData = DISCOUNT_RATES.map(d => ({
+          d,
+          opt:  computeMatrixCell(result.optimistic.calcBreakdown,  d, personalAppraisal, desiredPyung),
+          neut: computeMatrixCell(result.neutral.calcBreakdown,     d, personalAppraisal, desiredPyung),
+          pes:  computeMatrixCell(result.pessimistic.calcBreakdown, d, personalAppraisal, desiredPyung),
+        }));
+
+        return (
+        <div className="flex flex-col gap-5">
           {/* 결과 헤더 */}
           <div className="flex items-start justify-between flex-wrap gap-3">
             <div>
@@ -1010,9 +1060,16 @@ export default function ReportTestClient() {
                       <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
                         <div className="font-semibold text-zinc-700 mb-1">③ 총사업비</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-                          <span className="text-zinc-400">연면적</span><span>{b.totalFloorAreaPyung.toLocaleString()}평</span>
+                          {b.existingFloorAreaSqm != null && b.existingFAR != null && b.derivedSiteAreaSqm != null ? (<>
+                            <span className="text-zinc-400 col-span-2 text-xs text-zinc-300">▸ 신축연면적 역산</span>
+                            <span className="text-zinc-400 pl-2">기존연면적(건축물대장)</span><span>{b.existingFloorAreaSqm.toLocaleString()}㎡</span>
+                            <span className="text-zinc-400 pl-2">기존용적률</span><span>{b.existingFAR}%</span>
+                            <span className="text-zinc-400 pl-2">역산 대지면적</span><span>{b.derivedSiteAreaSqm.toLocaleString()}㎡</span>
+                            <span className="text-zinc-400 pl-2">신축용적률</span><span>{b.newFAR}%</span>
+                          </>) : null}
+                          <span className="text-zinc-400">신축 총연면적</span><span>{b.totalFloorAreaPyung.toLocaleString()}평</span>
                           <span className="text-zinc-400">순수공사비 (C_T × 연면적)</span><span>{fmt억(b.pureCost)}</span>
-                          <span className="text-zinc-400">기타사업비 (×15%)</span><span>{fmt억(b.otherCost)}</span>
+                          <span className="text-zinc-400">기타사업비 (×33%)</span><span>{fmt억(b.otherCost)}</span>
                           <span className="text-zinc-400">금융비용</span><span>{fmt억(b.financialCost)}</span>
                           <span className="text-zinc-400 font-medium">총사업비</span><span className="font-medium">{fmt억(b.totalCost)}</span>
                         </div>
@@ -1023,8 +1080,16 @@ export default function ReportTestClient() {
                         <div className="font-semibold text-zinc-700 mb-1">④ 총분양수익</div>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
                           <span className="text-zinc-400">일반분양가 P</span><span>{fmt만(b.P)}/평</span>
+                          <span className="text-zinc-400">일반분양가 (P)</span><span>{b.P.toLocaleString()}원/평</span>
                           <span className="text-zinc-400">일반분양면적</span><span>{b.generalSaleAreaPyung.toLocaleString()}평</span>
                           <span className="text-zinc-400">일반분양수익</span><span>{fmt억(b.generalRevenue)}</span>
+                          <span className="text-zinc-400">
+                            조합원분양가
+                            <span className="ml-1 text-xs px-1 rounded" style={{background: b.memberSalePriceMethod === 'prop_rate_inverse' ? '#dbeafe' : b.memberSalePriceMethod === 'announced' ? '#dcfce7' : '#fef9c3'}}>
+                              {b.memberSalePriceMethod === 'prop_rate_inverse' ? '비례율역산' : b.memberSalePriceMethod === 'announced' ? '확정' : b.memberSalePriceMethod === 'manual' ? '수동' : '할인추정'}
+                            </span>
+                          </span>
+                          <span>{b.memberSalePricePerPyung.toLocaleString()}원/평</span>
                           <span className="text-zinc-400">조합원분양면적</span><span>{b.memberSaleAreaPyung.toLocaleString()}평</span>
                           <span className="text-zinc-400">조합원분양수익</span><span>{fmt억(b.memberRevenue)}</span>
                           <span className="text-zinc-400 font-medium">총분양수익</span><span className="font-medium">{fmt억(b.totalRevenue)}</span>
@@ -1083,57 +1148,232 @@ export default function ReportTestClient() {
                 ))}
               </div>
             </div>
-            <div className="flex gap-2">
-              {(["cards", "table"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === tab
-                      ? "bg-blue-600 text-white"
-                      : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-                  }`}
-                >
-                  {tab === "cards" ? "카드 뷰" : "비교 테이블"}
-                </button>
+          </div>
+
+          {/* ── 핵심 매트릭스 ── */}
+          <div className="flex flex-col gap-3">
+            <div>
+              <h3 className="text-base font-bold text-zinc-900">할인율별 비례율 &amp; 추정분담금</h3>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                일반분양가(중립 {(bn.P / 1e4).toFixed(0)}만/평) 대비 조합원분양가 할인율 6단계 × 경제 시나리오 3종
+              </p>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+
+              {/* 비례율 표 */}
+              <div className="rounded-xl border border-zinc-200 overflow-hidden">
+                <div className="bg-zinc-50 px-4 py-2 border-b border-zinc-200 flex items-center justify-between">
+                  <span className="text-xs font-bold text-zinc-700">비례율 (%)</span>
+                  <span className="text-xs text-zinc-400">중립 굵게 표시</span>
+                </div>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-100">
+                      <th className="text-left px-3 py-2 text-zinc-400 font-medium w-14">할인율</th>
+                      <th className="text-center px-3 py-2 text-blue-500 font-medium">낙관 📈</th>
+                      <th className="text-center px-3 py-2 text-zinc-700 font-bold bg-zinc-50">중립 📊</th>
+                      <th className="text-center px-3 py-2 text-red-400 font-medium">비관 📉</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixData.map(({ d, opt, neut, pes }) => (
+                      <tr key={d} className="border-b border-zinc-50 last:border-0">
+                        <td className="px-3 py-2 font-semibold text-zinc-500">{d}%</td>
+                        <td className={`px-3 py-1.5 text-center ${propRateCls(opt.propRate)}`}>{opt.propRate.toFixed(1)}%</td>
+                        <td className={`px-3 py-1.5 text-center bg-zinc-50 ${propRateCls(neut.propRate, true)}`}>{neut.propRate.toFixed(1)}%</td>
+                        <td className={`px-3 py-1.5 text-center ${propRateCls(pes.propRate)}`}>{pes.propRate.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-3 py-2 bg-zinc-50 border-t border-zinc-100 flex gap-3 text-xs">
+                  <span className="text-blue-600">● ≥115%</span>
+                  <span className="text-green-600">● ≥100%</span>
+                  <span className="text-yellow-600">● ≥85%</span>
+                  <span className="text-red-600">● &lt;85%</span>
+                </div>
+              </div>
+
+              {/* 추정분담금 표 */}
+              <div className="rounded-xl border border-zinc-200 overflow-hidden">
+                <div className="bg-zinc-50 px-4 py-2 border-b border-zinc-200 flex items-center justify-between">
+                  <span className="text-xs font-bold text-zinc-700">추정 분담금 ({desiredPyung}평 기준)</span>
+                  <span className="text-xs text-zinc-400">감정평가 {fWon(personalAppraisal, true)}</span>
+                </div>
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-100">
+                      <th className="text-left px-3 py-2 text-zinc-400 font-medium w-14">할인율</th>
+                      <th className="text-center px-3 py-2 text-blue-500 font-medium">낙관 📈</th>
+                      <th className="text-center px-3 py-2 text-zinc-700 font-bold bg-zinc-50">중립 📊</th>
+                      <th className="text-center px-3 py-2 text-red-400 font-medium">비관 📉</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matrixData.map(({ d, opt, neut, pes }) => (
+                      <tr key={d} className="border-b border-zinc-50 last:border-0">
+                        <td className="px-3 py-2 font-semibold text-zinc-500">{d}%</td>
+                        <td className={`px-3 py-1.5 text-center ${opt.contribution < 0 ? "text-blue-600" : "text-red-600"}`}>{fmtContrib(opt.contribution)}</td>
+                        <td className={`px-3 py-1.5 text-center bg-zinc-50 font-bold ${neut.contribution < 0 ? "text-blue-700" : "text-red-700"}`}>{fmtContrib(neut.contribution)}</td>
+                        <td className={`px-3 py-1.5 text-center ${pes.contribution < 0 ? "text-blue-600" : "text-red-600"}`}>{fmtContrib(pes.contribution)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-3 py-2 bg-zinc-50 border-t border-zinc-100 flex gap-3 text-xs">
+                  <span className="text-blue-600">● 수령 (환급)</span>
+                  <span className="text-red-600">● 납부 (추가부담금)</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          {/* ── 계산 기초값 ── */}
+          <details className="rounded-xl border border-zinc-200 overflow-hidden">
+            <summary className="flex items-center justify-between px-4 py-3 bg-zinc-50 cursor-pointer text-sm font-semibold text-zinc-700 hover:bg-zinc-100 list-none">
+              <span>📊 계산 기초값 (중립 시나리오)</span>
+              <span className="text-xs font-normal text-zinc-400">▸ 클릭</span>
+            </summary>
+            <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+              {[
+                ["신축 총연면적", `${bn.totalFloorAreaPyung.toLocaleString()}평`],
+                ["일반 분양면적", `${bn.generalSaleAreaPyung.toLocaleString()}평`],
+                ["조합원 분양면적", `${bn.memberSaleAreaPyung.toLocaleString()}평`],
+                ["일반분양가 (중립)", `${(bn.P / 1e4).toFixed(0)}만/평`],
+                ["일반분양수익 (중립)", `${(bn.generalRevenue / 1e8).toFixed(1)}억`],
+                ["총사업비 낙/중/비", `${(result.optimistic.calcBreakdown.totalCost/1e8).toFixed(0)} / ${(bn.totalCost/1e8).toFixed(0)} / ${(result.pessimistic.calcBreakdown.totalCost/1e8).toFixed(0)}억`],
+                ["총종전자산", `${(bn.totalAppraisalValue / 1e8).toFixed(1)}억`],
+                ["개인 감정평가액", fWon(personalAppraisal, true)],
+                ["사업기간 (중립)", fMonth(bn.T)],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded bg-zinc-50 border border-zinc-100 p-2 flex flex-col gap-0.5">
+                  <span className="text-zinc-400">{label}</span>
+                  <span className="font-semibold text-zinc-800">{value}</span>
+                </div>
               ))}
             </div>
-          </div>
+          </details>
 
-          {activeTab === "cards" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-              <ScenarioCard r={result.optimistic} desiredPyung={result.input.desiredPyung} />
-              <ScenarioCard r={result.neutral} desiredPyung={result.input.desiredPyung} />
-              <ScenarioCard r={result.pessimistic} desiredPyung={result.input.desiredPyung} />
+          {/* ── 계산 과정 상세 ── */}
+          <details className="rounded-xl border border-zinc-200 overflow-hidden">
+            <summary className="flex items-center justify-between px-4 py-3 bg-zinc-50 cursor-pointer text-sm font-semibold text-zinc-700 hover:bg-zinc-100 list-none">
+              <span>📐 계산 과정 상세 (중립 시나리오)</span>
+              <span className="text-xs font-normal text-zinc-400">▸ 클릭</span>
+            </summary>
+            {(() => {
+              const b = result.neutral.calcBreakdown;
+              const fmt억 = (v: number) => `${(v / 1e8).toFixed(1)}억`;
+              const fmt만 = (v: number) => `${(v / 1e4).toFixed(0)}만`;
+              return (
+                <div className="p-4 font-mono text-xs text-zinc-600 space-y-3">
+                  <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                    <div className="font-semibold text-zinc-700 mb-1">① 사업기간</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                      <span className="text-zinc-400">착공까지</span><span>{b.monthsToStart}개월 ({(b.monthsToStart/12).toFixed(1)}년)</span>
+                      <span className="text-zinc-400">공사기간</span><span>{b.constructionMonths}개월 ({(b.constructionMonths/12).toFixed(1)}년)</span>
+                      <span className="text-zinc-400">총 T</span><span className="font-medium">{b.T}개월 ({(b.T/12).toFixed(1)}년)</span>
+                    </div>
+                  </div>
+                  <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                    <div className="font-semibold text-zinc-700 mb-1">② 공사비 예측 (지수평활)</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                      <span className="text-zinc-400">현재 C₀</span><span>{fmt만(b.C0)}/평</span>
+                      <span className="text-zinc-400">감쇠계수 W</span><span>{b.W}</span>
+                      <span className="text-zinc-400">적용 월 인상률</span><span>{(b.appliedMonthlyRate * 100).toFixed(3)}%</span>
+                      <span className="text-zinc-400">착공시 C_T</span><span className="font-medium">{fmt만(b.C_T)}/평</span>
+                    </div>
+                  </div>
+                  <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                    <div className="font-semibold text-zinc-700 mb-1">③ 총사업비</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                      {b.existingFloorAreaSqm != null && b.existingFAR != null && b.derivedSiteAreaSqm != null ? (<>
+                        <span className="text-zinc-400 col-span-2 text-xs text-zinc-300">▸ 신축연면적 역산</span>
+                        <span className="text-zinc-400 pl-2">기존연면적(건축물대장)</span><span>{b.existingFloorAreaSqm.toLocaleString()}㎡</span>
+                        <span className="text-zinc-400 pl-2">기존용적률</span><span>{b.existingFAR}%</span>
+                        <span className="text-zinc-400 pl-2">역산 대지면적</span><span>{b.derivedSiteAreaSqm.toLocaleString()}㎡</span>
+                        <span className="text-zinc-400 pl-2">신축용적률</span><span>{b.newFAR}%</span>
+                      </>) : null}
+                      <span className="text-zinc-400">신축 총연면적</span><span>{b.totalFloorAreaPyung.toLocaleString()}평</span>
+                      <span className="text-zinc-400">순수공사비 (C_T × 연면적)</span><span>{fmt억(b.pureCost)}</span>
+                      <span className="text-zinc-400">기타사업비 (×33%)</span><span>{fmt억(b.otherCost)}</span>
+                      <span className="text-zinc-400">금융비용</span><span>{fmt억(b.financialCost)}</span>
+                      <span className="text-zinc-400 font-medium">총사업비</span><span className="font-medium">{fmt억(b.totalCost)}</span>
+                    </div>
+                  </div>
+                  <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                    <div className="font-semibold text-zinc-700 mb-1">④ 일반분양수익 (고정)</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                      <span className="text-zinc-400">일반분양가 P</span><span>{fmt만(b.P)}/평</span>
+                      <span className="text-zinc-400">일반분양면적</span><span>{b.generalSaleAreaPyung.toLocaleString()}평</span>
+                      <span className="text-zinc-400 font-medium">일반분양수익</span><span className="font-medium">{fmt억(b.generalRevenue)}</span>
+                    </div>
+                  </div>
+                  <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                    <div className="font-semibold text-zinc-700 mb-1">⑤ 종전자산 & 비례율 기준선</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                      <span className="text-zinc-400">총종전자산</span><span>{fmt억(b.totalAppraisalValue)}</span>
+                      <span className="text-zinc-400">총사업비</span><span>{fmt억(b.totalCost)}</span>
+                      <span className="text-zinc-400">일반분양수익</span><span>{fmt억(b.generalRevenue)}</span>
+                      <span className="text-zinc-400 text-zinc-300">잉여 (일반수익 - 사업비)</span><span className={b.generalRevenue - b.totalCost >= 0 ? "text-blue-600" : "text-red-600"}>{fmt억(b.generalRevenue - b.totalCost)}</span>
+                    </div>
+                  </div>
+                  <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
+                    <div className="font-semibold text-zinc-700 mb-1">⑥ 개인 감정평가 (기준)</div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                      <span className="text-zinc-400">감정평가 방법</span><span>{b.appraisalMethodDetail}</span>
+                      <span className="text-zinc-400">감정평가액</span><span>{fmt억(result.neutral.estimatedAppraisalValue)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </details>
+
+          {/* ── 경제 시나리오별 상세 ── */}
+          <details className="rounded-xl border border-zinc-200 overflow-hidden">
+            <summary className="flex items-center justify-between px-4 py-3 bg-zinc-50 cursor-pointer text-sm font-semibold text-zinc-700 hover:bg-zinc-100 list-none">
+              <span>📈 경제 시나리오별 상세 비교</span>
+              <span className="text-xs font-normal text-zinc-400">▸ 클릭</span>
+            </summary>
+            <div className="p-4 flex flex-col gap-4">
+              <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+                <ComparisonTable result={result} />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <ScenarioCard r={result.optimistic} desiredPyung={result.input.desiredPyung} />
+                <ScenarioCard r={result.neutral} desiredPyung={result.input.desiredPyung} />
+                <ScenarioCard r={result.pessimistic} desiredPyung={result.input.desiredPyung} />
+              </div>
             </div>
-          )}
+          </details>
 
-          {activeTab === "table" && (
-            <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
-              <ComparisonTable result={result} />
+          {/* 공사비 방법론 */}
+          <details className="rounded-xl border border-zinc-200 overflow-hidden">
+            <summary className="flex items-center justify-between px-4 py-3 bg-zinc-50 cursor-pointer text-sm font-semibold text-zinc-700 hover:bg-zinc-100 list-none">
+              <span>📐 공사비 예측 방법론 (지수평활법)</span>
+              <span className="text-xs font-normal text-zinc-400">▸ 클릭</span>
+            </summary>
+            <div className="px-5 py-4 flex flex-col gap-2 text-sm">
+              <p className="text-zinc-500 leading-relaxed">
+                <strong>중립/낙관:</strong> W = e<sup>-λ×T</sup> 감쇠 가중치로 최근 급등세가 장기 평균으로 수렴.
+                W×r_recent + (1-W)×r_long 혼합 월 인상률에 복리(지수) 적용.{" "}
+                {`중립 적용률: ${fPct(result.neutral.constructionCostGrowthRate)}/월`}
+              </p>
+              <p className="text-zinc-500 leading-relaxed">
+                <strong>비관:</strong> 지수평활 배제. 최근 급등세(r_recent) + 지정학적 위기 프리미엄(α) 그대로 유지.{" "}
+                {`비관 적용률: ${fPct(result.pessimistic.constructionCostGrowthRate)}/월`}
+              </p>
             </div>
-          )}
-
-          {/* 공사비 인상 설명 */}
-          <div className="bg-zinc-50 rounded-xl border border-zinc-200 p-5 text-sm flex flex-col gap-2">
-            <p className="font-bold text-zinc-700">📐 공사비 예측 방법론 (지수평활법)</p>
-            <p className="text-zinc-500 leading-relaxed">
-              <strong>중립/낙관:</strong> W = e<sup>-λ×T</sup> 감쇠 가중치로 최근 급등세가 장기 평균으로 수렴.
-              W×r_recent + (1-W)×r_long 혼합 월 인상률에 복리(지수) 적용.{" "}
-              {`중립 적용률: ${fPct(result.neutral.constructionCostGrowthRate)}/월`}
-            </p>
-            <p className="text-zinc-500 leading-relaxed">
-              <strong>비관:</strong> 지수평활 배제. 최근 급등세(r_recent) + 지정학적 위기 프리미엄(α) 그대로 유지.{" "}
-              {`비관 적용률: ${fPct(result.pessimistic.constructionCostGrowthRate)}/월`}
-            </p>
-          </div>
+          </details>
 
           <p className="text-xs text-zinc-400 text-center">
             본 분석 결과는 내부 테스트용이며 실제 투자 결과를 보장하지 않습니다.
             구역 데이터는 공개 정보 기반 추정값으로 실제 서비스 전 정확한 값으로 교체 필요.
           </p>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
