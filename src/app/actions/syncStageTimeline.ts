@@ -22,6 +22,9 @@ export interface GyeonggiApiRow {
  * zones_data 단계 날짜를 동기화한다.
  */
 export async function saveGyeonggiRows(rows: GyeonggiApiRow[]): Promise<{ saved: number; synced: number; error?: string }> {
+  try {
+  if (!rows || rows.length === 0) return { saved: 0, synced: 0, error: "rows가 비어있습니다." };
+
   const supabase = await createClient();
 
   // 1. stage_timeline_raw upsert
@@ -78,4 +81,8 @@ export async function saveGyeonggiRows(rows: GyeonggiApiRow[]): Promise<{ saved:
   }
 
   return { saved: timelineRows.length, synced };
+  } catch (e) {
+    console.error("[saveGyeonggiRows] unexpected error:", e);
+    return { saved: 0, synced: 0, error: `서버 오류: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
