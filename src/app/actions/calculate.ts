@@ -752,16 +752,6 @@ function resolveZoneParams(
 
 // ─── 경기도 정비사업 현황 API — 실시간 단계 날짜 조회 ─────────────────────────
 
-const GYEONGGI_CITIES = [
-  "수원","성남","의정부","안양","부천","광명","평택","동두천","안산","고양",
-  "과천","구리","남양주","오산","시흥","군포","의왕","하남","용인","파주",
-  "이천","안성","김포","화성","광주","양주","포천","여주","연천","가평","양평",
-];
-
-function isGyeonggiSigungu(sigungu: string | null): boolean {
-  if (!sigungu) return false;
-  return GYEONGGI_CITIES.some(c => sigungu.includes(c));
-}
 
 function parseDateStr(d: string | null | undefined): string | null {
   if (!d) return null;
@@ -782,14 +772,18 @@ interface GyeonggiResult extends Pick<ZoneData,
 /** 경기도 API에서 구역의 단계 날짜 조회 */
 async function fetchGyeonggiStageDates(
   zoneName: string,
-  sigungu: string | null,
+  lawdCd: string | null,
 ): Promise<GyeonggiResult | null> {
   const apiKey = process.env.GYEONGGI_OPEN_API_KEY ?? "6f7cae6f12fb49dea44a0f30e1611919";
-  if (!isGyeonggiSigungu(sigungu)) return null;
+  // lawd_cd 앞 2자리가 "41" = 경기도
+  if (!lawdCd?.startsWith("41")) return null;
 
   try {
-    // 경기도 전체 조회 (총 ~533건) — SIGUN_NM 필터는 API 미지원, pSize=1000으로 한 번에 전체 수집
-    const params = new URLSearchParams({ KEY: apiKey, Type: "json", pIndex: "1", pSize: "1000" });
+    // IMPRV_ZONE_NM 파라미터로 직접 구역명 필터 호출
+    const params = new URLSearchParams({
+      KEY: apiKey, Type: "json", pIndex: "1", pSize: "10",
+      IMPRV_ZONE_NM: zoneName,
+    });
 
     const res = await fetch(`https://openapi.gg.go.kr/GenrlimprvBizpropls?${params}`, {
       signal: AbortSignal.timeout(10000),
@@ -809,20 +803,7 @@ async function fetchGyeonggiStageDates(
       STRCONTR_DE?: string | null;
     };
     const rows: GRow[] = ((root[1] as { row?: GRow[] }).row) ?? [];
-
-    // 구역명 정규화 후 매칭
-    const normalize = (n: string) =>
-      n.replace(/\s+/g, "")
-       .replace(/주택재건축정비사업조합?|주택재개발정비사업조합?|정비사업조합?/g, "")
-       .toLowerCase();
-
-    const zNorm = normalize(zoneName);
-    const matched = rows.find(r => {
-      const rNorm = normalize(r.IMPRV_ZONE_NM);
-      const shorter = zNorm.length < rNorm.length ? zNorm : rNorm;
-      return shorter.length >= 3 && (rNorm.includes(zNorm) || zNorm.includes(rNorm));
-    });
-
+    const matched = rows[0];
     if (!matched) return null;
 
     return {
@@ -883,7 +864,7 @@ export async function calculateAnalysis(
     !zForApi.management_disposal_date || !zForApi.construction_start_date;
   let gyeonggiApiMatchedZone: string | null = null;
   if (needsDateFetch && zoneName) {
-    const gyeonggiDates = await fetchGyeonggiStageDates(zoneName, zForApi.sigungu);
+    const gyeonggiDates = await fetchGyeonggiStageDates(zoneName, zForApi.lawd_cd);
     if (gyeonggiDates) {
       gyeonggiApiMatchedZone = gyeonggiDates.matchedZoneName;
       zForApi = {
