@@ -770,40 +770,50 @@ interface StageDateResult extends Pick<ZoneData,
  */
 async function fetchStageDatesFromCache(
   zoneName: string,
+  sigungu: string | null,
   supabase: Awaited<ReturnType<typeof createClient>>,
 ): Promise<StageDateResult | null> {
-  // "수원_권선2구역_성일" → "구역" 포함 세그먼트 우선, 없으면 마지막 세그먼트
   const parts = zoneName.split("_").filter(Boolean);
-  const keyTerm = parts.find(p => /구역|지구|재건축|재개발/.test(p)) ?? parts[parts.length - 1] ?? zoneName;
-  if (!keyTerm || keyTerm.length < 2) return null;
+  // 시도 순서: "구역/지구" 포함 세그먼트 → 나머지 세그먼트 (도시명 제외)
+  const keyTerms = [
+    ...new Set([
+      parts.find(p => /구역|지구/.test(p)),
+      ...parts.slice(1),       // 첫 세그먼트(도시명) 제외
+    ].filter((v): v is string => !!v && v.length >= 2)),
+  ];
+  if (!keyTerms.length) return null;
+
+  // "수원시 권선구" → "수원시" — stage_timeline_raw.sigungu 는 시 단위
+  const sigunguCity = sigungu?.split(" ")[0] ?? null;
+
+  const scoreRow = (r: { date_management_disposal: unknown; date_implementation: unknown; date_construction_start: unknown; date_zone_designation: unknown }) =>
+    (r.date_management_disposal ? 2 : 0) + (r.date_implementation ? 2 : 0) +
+    (r.date_construction_start ? 1 : 0) + (r.date_zone_designation ? 1 : 0);
 
   try {
-    const { data } = await supabase
-      .from("stage_timeline_raw")
-      .select("zone_name,date_zone_designation,date_association,date_implementation,date_management_disposal,date_construction_start")
-      .ilike("zone_name", `%${keyTerm}%`)
-      .limit(5);
+    for (const keyTerm of keyTerms) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let q: any = supabase
+        .from("stage_timeline_raw")
+        .select("zone_name,date_zone_designation,date_association,date_implementation,date_management_disposal,date_construction_start")
+        .ilike("zone_name", `%${keyTerm}%`);
+      if (sigunguCity) q = q.ilike("sigungu", `%${sigunguCity}%`);
+      const { data } = await q.limit(5);
+      if (!data?.length) continue;
 
-    if (!data?.length) return null;
-
-    // 여러 건 중 날짜가 가장 많이 채워진 row 선택
-    const best = data.reduce((a, b) => {
-      const score = (r: typeof data[0]) =>
-        (r.date_management_disposal ? 2 : 0) +
-        (r.date_implementation ? 2 : 0) +
-        (r.date_construction_start ? 1 : 0) +
-        (r.date_zone_designation ? 1 : 0);
-      return score(a) >= score(b) ? a : b;
-    });
-
-    return {
-      matchedZoneName:             best.zone_name as string,
-      zone_designation_date:       best.date_zone_designation as string | null,
-      association_approval_date:   best.date_association as string | null,
-      project_implementation_date: best.date_implementation as string | null,
-      management_disposal_date:    best.date_management_disposal as string | null,
-      construction_start_date:     best.date_construction_start as string | null,
-    };
+      const best = (data as typeof data[]).reduce((a: typeof data[0], b: typeof data[0]) =>
+        scoreRow(a) >= scoreRow(b) ? a : b
+      );
+      return {
+        matchedZoneName:             best.zone_name as string,
+        zone_designation_date:       best.date_zone_designation as string | null,
+        association_approval_date:   best.date_association as string | null,
+        project_implementation_date: best.date_implementation as string | null,
+        management_disposal_date:    best.date_management_disposal as string | null,
+        construction_start_date:     best.date_construction_start as string | null,
+      };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -854,7 +864,7 @@ export async function calculateAnalysis(
     !zForApi.management_disposal_date || !zForApi.construction_start_date;
   let gyeonggiApiMatchedZone: string | null = null;
   if (needsDateFetch && zoneName) {
-    const gyeonggiDates = await fetchStageDatesFromCache(zoneName, supabase);
+    const gyeonggiDates = await fetchStageDatesFromCache(zoneName, baseZone.sigungu ?? null, supabase);
     if (gyeonggiDates) {
       gyeonggiApiMatchedZone = gyeonggiDates.matchedZoneName;
       zForApi = {
