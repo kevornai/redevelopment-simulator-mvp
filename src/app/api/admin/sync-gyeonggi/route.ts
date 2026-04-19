@@ -55,8 +55,9 @@ export async function POST(req: NextRequest) {
       construction_start_date: string | null;
     }>) {
       if (!zone.zone_name) continue;
-      const keyTerm = zone.zone_name.includes("_") ? zone.zone_name.split("_").pop()! : zone.zone_name;
-      const match = timelineRows.find(r => r.zone_name?.includes(keyTerm) || keyTerm.includes(r.zone_name ?? ""));
+      const parts = zone.zone_name.split("_").filter(Boolean);
+      const keyTerm = parts.find(p => /구역|지구|재건축|재개발/.test(p)) ?? parts[parts.length - 1] ?? zone.zone_name;
+      const match = deduped.find(r => r.zone_name?.includes(keyTerm) || keyTerm.includes(r.zone_name ?? ""));
       if (!match) continue;
 
       const update: Record<string, string> = {};

@@ -667,8 +667,12 @@ function resolveZoneParams(
   let months_p25_adjusted = months_p25;
   let months_p75_adjusted = months_p75;
   if (stageStartDateRaw && !z.construction_start_announced_ym) {
+    // 경기도 API 날짜는 "YYYYMMDD" 형식 → ISO 변환 후 파싱
+    const normalized = /^\d{8}$/.test(stageStartDateRaw)
+      ? `${stageStartDateRaw.slice(0,4)}-${stageStartDateRaw.slice(4,6)}-${stageStartDateRaw.slice(6,8)}`
+      : stageStartDateRaw;
     const elapsed = Math.max(0, Math.round(
-      (Date.now() - new Date(stageStartDateRaw).getTime()) / (1000 * 60 * 60 * 24 * 30.44)
+      (Date.now() - new Date(normalized).getTime()) / (1000 * 60 * 60 * 24 * 30.44)
     ));
     stageElapsedMonths = elapsed;
     months_to_construction_adjusted = Math.max(0, months_to_construction_start - elapsed);
@@ -768,7 +772,9 @@ async function fetchStageDatesFromCache(
   zoneName: string,
   supabase: Awaited<ReturnType<typeof createClient>>,
 ): Promise<StageDateResult | null> {
-  const keyTerm = zoneName.includes("_") ? zoneName.split("_").pop()! : zoneName;
+  // "수원_권선2구역_성일" → "구역" 포함 세그먼트 우선, 없으면 마지막 세그먼트
+  const parts = zoneName.split("_").filter(Boolean);
+  const keyTerm = parts.find(p => /구역|지구|재건축|재개발/.test(p)) ?? parts[parts.length - 1] ?? zoneName;
   if (!keyTerm || keyTerm.length < 2) return null;
 
   try {
