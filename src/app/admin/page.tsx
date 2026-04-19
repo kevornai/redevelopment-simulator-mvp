@@ -2,7 +2,20 @@
 
 import { useState } from 'react';
 import { sendMarketingEmail } from '@/app/actions/adminEmail';
-import { saveGyeonggiRows, type GyeonggiApiRow } from '@/app/actions/syncStageTimeline';
+type GyeonggiApiRow = {
+  SIGUN_NM: string;
+  SIGUN_CD: string;
+  BIZ_TYPE_NM: string;
+  IMPRV_ZONE_NM: string;
+  IMPRV_ZONE_APPONT_FIRST_DE: string | null;
+  PROPLSN_COMMISN_APRV_DE: string | null;
+  ASSOCTN_FOUND_CONFMTN_DE: string | null;
+  BIZ_IMPLMTN_CONFMTN_DE: string | null;
+  MANAGE_DISPOSIT_CONFMTN_DE: string | null;
+  STRCONTR_DE: string | null;
+  GENRL_LOTOUT_DE: string | null;
+  COMPLTN_DE: string | null;
+};
 
 const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD ?? '1111';
 
@@ -46,7 +59,12 @@ export default function AdminPage() {
       }
 
       setSyncStatus('saving');
-      const saveResult = await saveGyeonggiRows(allRows);
+      const res = await fetch('/api/admin/sync-gyeonggi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(allRows),
+      });
+      const saveResult = await res.json();
       setSyncResult(saveResult);
       setSyncStatus(saveResult.error ? 'error' : 'done');
     } catch (e) {
