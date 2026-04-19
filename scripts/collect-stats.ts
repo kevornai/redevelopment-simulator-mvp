@@ -137,14 +137,17 @@ function parseArgs() {
   const args = process.argv.slice(2);
   let maxPages = 0;
   let dryRun = false;
+  let syncOnly = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--max-pages" && args[i + 1]) {
       maxPages = parseInt(args[++i], 10);
     } else if (args[i] === "--dry-run") {
       dryRun = true;
+    } else if (args[i] === "--sync-only") {
+      syncOnly = true; // Step 5만 실행 (스크래핑 생략)
     }
   }
-  return { maxPages, dryRun };
+  return { maxPages, dryRun, syncOnly };
 }
 
 // ── 백분위 계산 (정수 반올림) ─────────────────────────────────────────
@@ -323,10 +326,157 @@ function computeDiscountStats(rows: DiscountRow[]) {
   return result;
 }
 
+// ── Step 5 헬퍼: 구역명 정규화 ────────────────────────────────────────
+function normalizeForMatch(name: string): string {
+  return name
+    .replace(/\s+/g, "")
+    .replace(/주택재건축정비사업조합?/g, "")
+    .replace(/주택재개발정비사업조합?/g, "")
+    .replace(/재건축정비사업조합?/g, "")
+    .replace(/재개발정비사업조합?/g, "")
+    .replace(/정비사업조합?/g, "")
+    .replace(/아파트단지/g, "아파트")
+    .replace(/\(재건축\)|\(재개발\)/g, "")
+    .toLowerCase();
+}
+
+interface TimelineMatchRow {
+  zone_name: string;
+  sigungu: string | null;
+  date_zone_designation:    string | null;
+  date_association:         string | null;
+  date_implementation:      string | null;
+  date_management_disposal: string | null;
+  date_construction_start:  string | null;
+}
+
+/** stage_timeline_raw 행 중 zones_data 구역과 가장 잘 매치되는 항목 반환 */
+function findBestTimelineMatch(
+  zone: { zone_name: string | null; sigungu: string | null },
+  timelineRows: TimelineMatchRow[],
+): TimelineMatchRow | null {
+  if (!zone.zone_name) return null;
+  const zNorm = normalizeForMatch(zone.zone_name);
+  if (zNorm.length < 2) return null;
+
+  let bestMatch: TimelineMatchRow | null = null;
+  let bestScore = 0;
+
+  for (const row of timelineRows) {
+    const tNorm = normalizeForMatch(row.zone_name);
+    if (!tNorm) continue;
+
+    let score = 0;
+    if (zNorm === tNorm) {
+      score = 1.0;
+    } else if (tNorm.includes(zNorm) || zNorm.includes(tNorm)) {
+      // 너무 짧은 키워드가 우연히 포함되는 경우 제외 (최소 4자)
+      const shorter = zNorm.length < tNorm.length ? zNorm : tNorm;
+      if (shorter.length >= 4) score = 0.8;
+    }
+
+    if (score === 0) continue;
+
+    // 시군구 보너스 (+0.15)
+    if (zone.sigungu && row.sigungu) {
+      const zSig = zone.sigungu.replace(/\s+/g, "");
+      const tSig = row.sigungu.replace(/\s+/g, "");
+      if (zSig.includes(tSig) || tSig.includes(zSig)) score += 0.15;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = row;
+    }
+  }
+
+  return bestScore >= 0.8 ? bestMatch : null;
+}
+
+// ── Step 5: stage_timeline_raw → zones_data 단계별 날짜 동기화 ────────
+async function syncStageDatesToZones(
+  supabase: SupabaseClient,
+  dryRun: boolean,
+  log: (msg: string) => void,
+): Promise<void> {
+  // stage_timeline_raw 전체 로드 (날짜 컬럼들)
+  const { data: tlRows, error: tlErr } = await supabase
+    .from("stage_timeline_raw")
+    .select(
+      "zone_name,sigungu," +
+      "date_zone_designation,date_association,date_implementation," +
+      "date_management_disposal,date_construction_start"
+    );
+
+  if (tlErr) { log(`  [오류] stage_timeline_raw 읽기 실패: ${tlErr.message}`); return; }
+  if (!tlRows?.length) { log("  stage_timeline_raw 데이터 없음 — 건너뜀"); return; }
+  log(`  stage_timeline_raw ${tlRows.length}건 로드`);
+
+  // zones_data 전체 로드
+  const { data: zones, error: zdErr } = await supabase
+    .from("zones_data")
+    .select(
+      "id,zone_name,sigungu," +
+      "zone_designation_date,association_approval_date,project_implementation_date," +
+      "management_disposal_date,construction_start_date"
+    );
+
+  if (zdErr) { log(`  [오류] zones_data 읽기 실패: ${zdErr.message}`); return; }
+  if (!zones?.length) { log("  zones_data 데이터 없음 — 건너뜀"); return; }
+  log(`  zones_data ${zones.length}건 로드`);
+
+  const tlTyped = tlRows as unknown as TimelineMatchRow[];
+  let matchedCount = 0;
+  let updatedCount = 0;
+
+  for (const zone of zones as unknown as Array<{
+    id: unknown;
+    zone_name: string | null;
+    sigungu: string | null;
+    zone_designation_date: string | null;
+    association_approval_date: string | null;
+    project_implementation_date: string | null;
+    management_disposal_date: string | null;
+    construction_start_date: string | null;
+  }>) {
+    const match = findBestTimelineMatch(zone, tlTyped);
+    if (!match) continue;
+    matchedCount++;
+
+    // NULL인 필드만 업데이트 (기존 수동 입력 보존)
+    const update: Record<string, string> = {};
+    if (!zone.zone_designation_date    && match.date_zone_designation)    update.zone_designation_date    = match.date_zone_designation;
+    if (!zone.association_approval_date && match.date_association)         update.association_approval_date = match.date_association;
+    if (!zone.project_implementation_date && match.date_implementation)    update.project_implementation_date = match.date_implementation;
+    if (!zone.management_disposal_date  && match.date_management_disposal) update.management_disposal_date  = match.date_management_disposal;
+    if (!zone.construction_start_date   && match.date_construction_start)  update.construction_start_date   = match.date_construction_start;
+
+    if (Object.keys(update).length === 0) continue;
+
+    const updatedFields = Object.keys(update).join(", ");
+    if (dryRun) {
+      log(`  [dry-run 매치] "${zone.zone_name}" ← "${match.zone_name}" → ${updatedFields}`);
+    } else {
+      const { error } = await supabase.from("zones_data").update(update).eq("id", zone.id);
+      if (error) {
+        log(`  [오류] zones_data 업데이트 실패 (${zone.zone_name}): ${error.message}`);
+      } else {
+        updatedCount++;
+      }
+    }
+  }
+
+  if (dryRun) {
+    log(`  [dry-run] 매치 ${matchedCount}건 — 실제 저장 건너뜀`);
+  } else {
+    log(`  zones_data 단계 날짜 업데이트 완료: ${updatedCount}건 (매치 ${matchedCount}건)`);
+  }
+}
+
 // ── 메인 ─────────────────────────────────────────────────────────────
 async function main() {
   loadEnvLocal();
-  const { maxPages, dryRun } = parseArgs();
+  const { maxPages, dryRun, syncOnly } = parseArgs();
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -339,9 +489,18 @@ async function main() {
   const startTime = Date.now();
   console.log("\n═══════════════════════════════════════════");
   console.log("  정비사업 통계 배치 수집 시작");
-  console.log(`  maxPages=${maxPages || "전체"}, dryRun=${dryRun}`);
+  console.log(`  maxPages=${maxPages || "전체"}, dryRun=${dryRun}, syncOnly=${syncOnly}`);
   console.log(`  시작: ${new Date().toLocaleString("ko-KR")}`);
   console.log("═══════════════════════════════════════════\n");
+
+  if (syncOnly) {
+    // Step 5만 실행: 기존 stage_timeline_raw → zones_data 동기화
+    console.log("[sync-only] Step 5 만 실행...");
+    await syncStageDatesToZones(supabase, dryRun, msg => console.log(msg));
+    const elapsed = Math.round((Date.now() - startTime) / 1000);
+    console.log(`\n  완료 (${elapsed}초)\n`);
+    return;
+  }
 
   // ── Step 1. 정비몽땅 스크래핑 ─────────────────────────────────────
   console.log("[Step 1] 정비몽땅 전수 스크래핑...");
@@ -520,6 +679,11 @@ async function main() {
     console.log("  [dry-run] discount_rates 미리보기:");
     console.log(JSON.stringify(discountStats, null, 2));
   }
+
+  // ── Step 5. stage_timeline_raw → zones_data 날짜 동기화 ─────────────
+  console.log("[Step 5] zones_data 단계별 날짜 자동 동기화...");
+  await syncStageDatesToZones(supabase, dryRun, msg => console.log(msg));
+  console.log();
 
   const elapsed = Math.round((Date.now() - startTime) / 1000);
   const mins = Math.floor(elapsed / 60);

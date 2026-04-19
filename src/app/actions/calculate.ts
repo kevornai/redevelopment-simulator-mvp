@@ -749,6 +749,92 @@ function resolveZoneParams(
   };
 }
 
+// ─── 경기도 정비사업 현황 API — 실시간 단계 날짜 조회 ─────────────────────────
+
+const GYEONGGI_CITIES = [
+  "수원","성남","의정부","안양","부천","광명","평택","동두천","안산","고양",
+  "과천","구리","남양주","오산","시흥","군포","의왕","하남","용인","파주",
+  "이천","안성","김포","화성","광주","양주","포천","여주","연천","가평","양평",
+];
+
+function isGyeonggiSigungu(sigungu: string | null): boolean {
+  if (!sigungu) return false;
+  return GYEONGGI_CITIES.some(c => sigungu.includes(c));
+}
+
+function parseDateStr(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const full = d.match(/(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if (full) return `${full[1]}-${full[2].padStart(2, "0")}-${full[3].padStart(2, "0")}`;
+  const ym = d.match(/(\d{4})[.\-\/](\d{1,2})/);
+  if (ym) return `${ym[1]}-${ym[2].padStart(2, "0")}-01`;
+  return null;
+}
+
+/** 경기도 API에서 구역의 단계 날짜 조회 (null 필드만 반환) */
+async function fetchGyeonggiStageDates(
+  zoneName: string,
+  sigungu: string | null,
+): Promise<Pick<ZoneData,
+  "zone_designation_date" | "association_approval_date" |
+  "project_implementation_date" | "management_disposal_date" | "construction_start_date"
+> | null> {
+  const apiKey = process.env.GYEONGGI_OPEN_API_KEY;
+  if (!apiKey || !isGyeonggiSigungu(sigungu)) return null;
+
+  try {
+    // 시 이름 추출 (예: "수원시 권선구" → "수원시")
+    const sigunNm = sigungu?.match(/[가-힣]+시/)?.[0] ?? null;
+
+    const params = new URLSearchParams({ KEY: apiKey, Type: "json", pIndex: "1", pSize: "100" });
+    if (sigunNm) params.set("SIGUN_NM", sigunNm);
+
+    const res = await fetch(`https://openapi.gg.go.kr/GenrlimprvBizpropls?${params}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+
+    const data = await res.json() as { GenrlimprvBizpropls?: unknown[] };
+    const root = data?.GenrlimprvBizpropls ?? [];
+    if (!Array.isArray(root) || root.length < 2) return null;
+
+    type GRow = {
+      IMPRV_ZONE_NM: string;
+      IMPRV_ZONE_APPONT_FIRST_DE?: string | null;
+      ASSOCTN_FOUND_CONFMTN_DE?: string | null;
+      BIZ_IMPLMTN_CONFMTN_DE?: string | null;
+      MANAGE_DISPOSIT_CONFMTN_DE?: string | null;
+      STRCONTR_DE?: string | null;
+    };
+    const rows: GRow[] = ((root[1] as { row?: GRow[] }).row) ?? [];
+
+    // 구역명 정규화 후 매칭
+    const normalize = (n: string) =>
+      n.replace(/\s+/g, "")
+       .replace(/주택재건축정비사업조합?|주택재개발정비사업조합?|정비사업조합?/g, "")
+       .toLowerCase();
+
+    const zNorm = normalize(zoneName);
+    const matched = rows.find(r => {
+      const rNorm = normalize(r.IMPRV_ZONE_NM);
+      const shorter = zNorm.length < rNorm.length ? zNorm : rNorm;
+      return shorter.length >= 3 && (rNorm.includes(zNorm) || zNorm.includes(rNorm));
+    });
+
+    if (!matched) return null;
+
+    return {
+      zone_designation_date:       parseDateStr(matched.IMPRV_ZONE_APPONT_FIRST_DE),
+      association_approval_date:   parseDateStr(matched.ASSOCTN_FOUND_CONFMTN_DE),
+      project_implementation_date: parseDateStr(matched.BIZ_IMPLMTN_CONFMTN_DE),
+      management_disposal_date:    parseDateStr(matched.MANAGE_DISPOSIT_CONFMTN_DE),
+      construction_start_date:     parseDateStr(matched.STRCONTR_DE),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // 메인 계산 함수
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -786,7 +872,25 @@ export async function calculateAnalysis(
   const { overrides: estimatedOverrides, priorAsset: priorAssetBreakdown } = estimateParamsForStage(baseZone, input, marketData);
 
   // Step 3: DB + 추정값 병합 (API 오버라이드 전 기준값)
-  const zForApi: ZoneData = { ...baseZone, ...estimatedOverrides };
+  let zForApi: ZoneData = { ...baseZone, ...estimatedOverrides };
+
+  // Step 3b: 단계 날짜 자동 보완 — 경기도 구역은 경기도 API에서 실시간 조회
+  const needsDateFetch =
+    !zForApi.zone_designation_date || !zForApi.project_implementation_date ||
+    !zForApi.management_disposal_date || !zForApi.construction_start_date;
+  if (needsDateFetch && zoneName) {
+    const gyeonggiDates = await fetchGyeonggiStageDates(zoneName, zForApi.sigungu);
+    if (gyeonggiDates) {
+      zForApi = {
+        ...zForApi,
+        zone_designation_date:       zForApi.zone_designation_date       ?? gyeonggiDates.zone_designation_date,
+        association_approval_date:   zForApi.association_approval_date   ?? gyeonggiDates.association_approval_date,
+        project_implementation_date: zForApi.project_implementation_date ?? gyeonggiDates.project_implementation_date,
+        management_disposal_date:    zForApi.management_disposal_date    ?? gyeonggiDates.management_disposal_date,
+        construction_start_date:     zForApi.construction_start_date     ?? gyeonggiDates.construction_start_date,
+      };
+    }
+  }
 
   // Step 4: 공시가 — 사용자 입력 우선, 없으면 NSDI 자동조회 결과 사용
   const effectiveOfficialValuation =
