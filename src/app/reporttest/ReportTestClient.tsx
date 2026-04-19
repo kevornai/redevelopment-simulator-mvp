@@ -1033,6 +1033,9 @@ export default function ReportTestClient() {
                   <span className="text-zinc-400">구역면적</span><span>{result.debugParams.zone_area_sqm?.toLocaleString() ?? "—"}㎡</span>
                   <span className="text-zinc-400">신축용적률</span><span>{result.debugParams.floor_area_ratio_new ?? "—"}%</span>
                   <span className="text-zinc-400">공시지가</span><span>{result.debugParams.land_official_price_per_sqm ? `${(result.debugParams.land_official_price_per_sqm / 1000).toFixed(0)}천원/㎡` : "—"}</span>
+                  {result.debugParams.gyeonggiApiMatchedZone && (
+                    <><span className="text-zinc-400">경기API 매칭</span><span className="text-green-600 text-xs">{result.debugParams.gyeonggiApiMatchedZone}</span></>
+                  )}
                   {result.debugParams.stageStartDate && (
                     <>
                       <span className="text-zinc-400">단계 시작일</span><span>{result.debugParams.stageStartDate.slice(0, 10)}</span>

@@ -229,6 +229,7 @@ export interface CalculationResult {
     land_official_price_per_sqm: number | null;
     stageElapsedMonths: number | null;
     stageStartDate: string | null;
+    gyeonggiApiMatchedZone: string | null;  // 경기도 API 매칭된 구역명 (null=미매칭)
   };
   /** 비정상 값 감지 시 경고 메시지 (결과는 유지) */
   warnings: string[];
@@ -771,26 +772,27 @@ function parseDateStr(d: string | null | undefined): string | null {
   return null;
 }
 
-/** 경기도 API에서 구역의 단계 날짜 조회 (null 필드만 반환) */
+interface GyeonggiResult extends Pick<ZoneData,
+  "zone_designation_date" | "association_approval_date" |
+  "project_implementation_date" | "management_disposal_date" | "construction_start_date"
+> {
+  matchedZoneName: string;
+}
+
+/** 경기도 API에서 구역의 단계 날짜 조회 */
 async function fetchGyeonggiStageDates(
   zoneName: string,
   sigungu: string | null,
-): Promise<Pick<ZoneData,
-  "zone_designation_date" | "association_approval_date" |
-  "project_implementation_date" | "management_disposal_date" | "construction_start_date"
-> | null> {
+): Promise<GyeonggiResult | null> {
   const apiKey = process.env.GYEONGGI_OPEN_API_KEY ?? "6f7cae6f12fb49dea44a0f30e1611919";
   if (!isGyeonggiSigungu(sigungu)) return null;
 
   try {
-    // 시 이름 추출 (예: "수원시 권선구" → "수원시")
-    const sigunNm = sigungu?.match(/[가-힣]+시/)?.[0] ?? null;
-
-    const params = new URLSearchParams({ KEY: apiKey, Type: "json", pIndex: "1", pSize: "100" });
-    if (sigunNm) params.set("SIGUN_NM", sigunNm);
+    // 경기도 전체 조회 (총 ~533건) — SIGUN_NM 필터는 API 미지원, pSize=1000으로 한 번에 전체 수집
+    const params = new URLSearchParams({ KEY: apiKey, Type: "json", pIndex: "1", pSize: "1000" });
 
     const res = await fetch(`https://openapi.gg.go.kr/GenrlimprvBizpropls?${params}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
 
@@ -824,6 +826,7 @@ async function fetchGyeonggiStageDates(
     if (!matched) return null;
 
     return {
+      matchedZoneName:             matched.IMPRV_ZONE_NM,
       zone_designation_date:       parseDateStr(matched.IMPRV_ZONE_APPONT_FIRST_DE),
       association_approval_date:   parseDateStr(matched.ASSOCTN_FOUND_CONFMTN_DE),
       project_implementation_date: parseDateStr(matched.BIZ_IMPLMTN_CONFMTN_DE),
@@ -878,9 +881,11 @@ export async function calculateAnalysis(
   const needsDateFetch =
     !zForApi.zone_designation_date || !zForApi.project_implementation_date ||
     !zForApi.management_disposal_date || !zForApi.construction_start_date;
+  let gyeonggiApiMatchedZone: string | null = null;
   if (needsDateFetch && zoneName) {
     const gyeonggiDates = await fetchGyeonggiStageDates(zoneName, zForApi.sigungu);
     if (gyeonggiDates) {
+      gyeonggiApiMatchedZone = gyeonggiDates.matchedZoneName;
       zForApi = {
         ...zForApi,
         zone_designation_date:       zForApi.zone_designation_date       ?? gyeonggiDates.zone_designation_date,
@@ -998,6 +1003,7 @@ export async function calculateAnalysis(
         land_official_price_per_sqm: baseZone.land_official_price_per_sqm,
         stageElapsedMonths: resolvedZ._derivedSources.stageElapsedMonths,
         stageStartDate: resolvedZ._derivedSources.stageStartDate,
+        gyeonggiApiMatchedZone,
       },
       warnings,
       calculatedAt: new Date().toISOString(),
