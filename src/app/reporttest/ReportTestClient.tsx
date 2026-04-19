@@ -345,13 +345,15 @@ const DISCOUNT_RATES = [5, 10, 15, 20, 25, 30] as const;
 
 function computeMatrixCell(
   b: ScenarioResult["calcBreakdown"],
+  neutralP: number,
   discountPct: number,
   personalAppraisal: number,
   desiredPyung: number,
 ) {
-  const memberSalePrice = b.P * (1 - discountPct / 100);
+  const memberSalePrice = neutralP * (1 - discountPct / 100);
+  const generalRevenue = neutralP * b.generalSaleAreaPyung;
   const memberRevenue = memberSalePrice * b.memberSaleAreaPyung;
-  const totalRevenue = b.generalRevenue + memberRevenue;
+  const totalRevenue = generalRevenue + memberRevenue;
   const propRate = b.totalAppraisalValue > 0
     ? (totalRevenue - b.totalCost) / b.totalAppraisalValue * 100
     : 0;
@@ -936,11 +938,12 @@ export default function ReportTestClient() {
         const personalAppraisal = result.neutral.estimatedAppraisalValue;
         const desiredPyung = result.input.desiredPyung;
         const bn = result.neutral.calcBreakdown;
-        const matrixData = DISCOUNT_RATES.map(d => ({
+        const saleAreaMissing = result.debugParams.saleAreaSource === "missing";
+        const matrixData = saleAreaMissing ? null : DISCOUNT_RATES.map(d => ({
           d,
-          opt:  computeMatrixCell(result.optimistic.calcBreakdown,  d, personalAppraisal, desiredPyung),
-          neut: computeMatrixCell(result.neutral.calcBreakdown,     d, personalAppraisal, desiredPyung),
-          pes:  computeMatrixCell(result.pessimistic.calcBreakdown, d, personalAppraisal, desiredPyung),
+          opt:  computeMatrixCell(result.optimistic.calcBreakdown,  bn.P, d, personalAppraisal, desiredPyung),
+          neut: computeMatrixCell(result.neutral.calcBreakdown,     bn.P, d, personalAppraisal, desiredPyung),
+          pes:  computeMatrixCell(result.pessimistic.calcBreakdown, bn.P, d, personalAppraisal, desiredPyung),
         }));
 
         return (
@@ -1158,6 +1161,18 @@ export default function ReportTestClient() {
                 일반분양가(중립 {(bn.P / 1e4).toFixed(0)}만/평) 대비 조합원분양가 할인율 6단계 × 경제 시나리오 3종
               </p>
             </div>
+
+            {saleAreaMissing ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
+                <p className="font-semibold">⚠️ 분양면적 데이터 없음 — 비례율·분담금 계산 불가</p>
+                <p className="mt-1 text-xs text-red-500">
+                  누락 항목: {result.debugParams.missingSaleAreaFields.join(", ")}
+                </p>
+                <p className="mt-1 text-xs text-red-500">
+                  관리자 페이지에서 위 항목을 입력하면 계산이 활성화됩니다.
+                </p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
 
               {/* 비례율 표 */}
@@ -1176,7 +1191,7 @@ export default function ReportTestClient() {
                     </tr>
                   </thead>
                   <tbody>
-                    {matrixData.map(({ d, opt, neut, pes }) => (
+                    {matrixData!.map(({ d, opt, neut, pes }) => (
                       <tr key={d} className="border-b border-zinc-50 last:border-0">
                         <td className="px-3 py-2 font-semibold text-zinc-500">{d}%</td>
                         <td className={`px-3 py-1.5 text-center ${propRateCls(opt.propRate)}`}>{opt.propRate.toFixed(1)}%</td>
@@ -1210,7 +1225,7 @@ export default function ReportTestClient() {
                     </tr>
                   </thead>
                   <tbody>
-                    {matrixData.map(({ d, opt, neut, pes }) => (
+                    {matrixData!.map(({ d, opt, neut, pes }) => (
                       <tr key={d} className="border-b border-zinc-50 last:border-0">
                         <td className="px-3 py-2 font-semibold text-zinc-500">{d}%</td>
                         <td className={`px-3 py-1.5 text-center ${opt.contribution < 0 ? "text-blue-600" : "text-red-600"}`}>{fmtContrib(opt.contribution)}</td>
@@ -1227,6 +1242,7 @@ export default function ReportTestClient() {
               </div>
 
             </div>
+            )}
           </div>
 
           {/* ── 계산 기초값 ── */}

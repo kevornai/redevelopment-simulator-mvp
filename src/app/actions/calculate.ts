@@ -613,8 +613,8 @@ function resolveZoneParams(
   }
 
   // 조합원/일반분양 면적 계산
-  // 방법 A (우선): 평형별 세대수 분포로 총 분양면적 산출 → 조합원/일반 비율 분배
-  // 방법 B (fallback): zone_area_sqm × FAR 기반 추정
+  // 방법 A: 평형별 세대수 × 공급면적 합산 → 조합원/일반 비율 분배
+  // 세대수 데이터 없으면 fallback 없이 "missing" 처리 — UI에서 공란 표시
   const missingSaleAreaFields: string[] = [];
   let member_sale_area = z.member_sale_area;
   let general_sale_area = z.general_sale_area;
@@ -625,28 +625,23 @@ function resolveZoneParams(
      z.new_units_sale_60_85 != null || z.new_units_sale_85_135 != null || z.new_units_sale_o135 != null);
 
   if (hasSizeDist && z.planned_units_member && z.planned_units_general != null) {
-    // 방법 A: 평형 중간값 × 세대수 합산 → 총 분양면적
-    // 분모는 new_units_sale_total 대신 planned_units_member + planned_units_general 사용
-    // (엑셀 신축분양세대수합계 데이터 불일치 방지)
     // 공급면적 대표값 (전용→공급 변환)
+    // 구간   전용중간값  공급면적
+    // u40    39㎡     → 53㎡
+    // 40_60  59㎡     → 80㎡
+    // 60_85  (74+84)/2=79㎡ → 104㎡
+    // 85_135 114㎡    → 149㎡
+    // o135   150㎡    → 196㎡
     const totalSaleArea =
-      (z.new_units_sale_u40     ?? 0) * 53    +  // 전용39㎡  → 공급53㎡
-      (z.new_units_sale_40_60   ?? 0) * 80    +  // 전용59㎡  → 공급80㎡
-      (z.new_units_sale_60_85   ?? 0) * 97    +  // 전용72.5㎡→ 공급97㎡
-      (z.new_units_sale_85_135  ?? 0) * 149   +  // 전용114㎡ → 공급149㎡
-      (z.new_units_sale_o135    ?? 0) * 196;     // 전용150㎡ → 공급196㎡
+      (z.new_units_sale_u40     ?? 0) * 53    +
+      (z.new_units_sale_40_60   ?? 0) * 80    +
+      (z.new_units_sale_60_85   ?? 0) * 104   +
+      (z.new_units_sale_85_135  ?? 0) * 149   +
+      (z.new_units_sale_o135    ?? 0) * 196;
     const totalUnits = z.planned_units_member + z.planned_units_general;
     const memberRatio = totalUnits > 0 ? z.planned_units_member / totalUnits : 1;
     member_sale_area  = totalSaleArea * memberRatio;
     general_sale_area = totalSaleArea * (1 - memberRatio);
-    saleAreaSource = "calculated";
-  } else if (z.zone_area_sqm && z.floor_area_ratio_new && z.planned_units_member && z.member_avg_pyung) {
-    // 방법 B: FAR 기반 (floor_area_ratio_new는 % 단위로 저장됨 → /100)
-    const effectiveSite = z.zone_area_sqm * (1 - (z.public_contribution_ratio ?? 0));
-    const totalFAR = (z.floor_area_ratio_new + (z.incentive_far_bonus ?? 0)) / 100;
-    const netArea = effectiveSite * totalFAR * (z.efficiency_ratio ?? 0.80);
-    member_sale_area  = z.planned_units_member * z.member_avg_pyung;
-    general_sale_area = Math.max(0, netArea - member_sale_area);
     saleAreaSource = "calculated";
   } else {
     if (!hasSizeDist) missingSaleAreaFields.push('평형별세대수(new_units_sale_*)');
