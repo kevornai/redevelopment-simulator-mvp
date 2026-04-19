@@ -29,9 +29,14 @@ export async function POST(req: NextRequest) {
       source_id:                `${r.SIGUN_CD}_${(r.IMPRV_ZONE_NM ?? "").replace(/\s+/g, "_")}`,
     }));
 
+    // source_id 중복 제거 (같은 배치 내 중복 시 ON CONFLICT 에러 방지)
+    const deduped = Array.from(
+      new Map(timelineRows.map(r => [r.source_id, r])).values()
+    );
+
     const { error: tlErr } = await supabase
       .from("stage_timeline_raw")
-      .upsert(timelineRows, { onConflict: "source,source_id" });
+      .upsert(deduped, { onConflict: "source,source_id" });
 
     if (tlErr) {
       return NextResponse.json({ saved: 0, synced: 0, error: tlErr.message });
@@ -66,7 +71,7 @@ export async function POST(req: NextRequest) {
       if (!error) synced++;
     }
 
-    return NextResponse.json({ saved: timelineRows.length, synced });
+    return NextResponse.json({ saved: deduped.length, synced });
   } catch (e) {
     console.error("[sync-gyeonggi] error:", e);
     return NextResponse.json(
