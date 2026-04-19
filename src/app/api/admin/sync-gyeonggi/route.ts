@@ -16,7 +16,7 @@ function ni(v: string | null | undefined): number | null {
 }
 function makeZoneId(sigunNm: string, zoneName: string): string {
   const city = sigunNm.split(/\s/)[0];
-  const name = zoneName.replace(/\s+/g, "").replace(/\([^)]*\)/g, "").replace(/(아파트|주공아파트|주공|단지)$/, "");
+  const name = zoneName.replace(/\s+/g, "");
   return `${city}_${name}`;
 }
 
