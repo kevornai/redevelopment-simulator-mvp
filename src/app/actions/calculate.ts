@@ -779,8 +779,8 @@ async function fetchGyeonggiStageDates(
   "zone_designation_date" | "association_approval_date" |
   "project_implementation_date" | "management_disposal_date" | "construction_start_date"
 > | null> {
-  const apiKey = process.env.GYEONGGI_OPEN_API_KEY;
-  if (!apiKey || !isGyeonggiSigungu(sigungu)) return null;
+  const apiKey = process.env.GYEONGGI_OPEN_API_KEY ?? "6f7cae6f12fb49dea44a0f30e1611919";
+  if (!isGyeonggiSigungu(sigungu)) return null;
 
   try {
     // 시 이름 추출 (예: "수원시 권선구" → "수원시")

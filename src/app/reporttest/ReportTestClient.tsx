@@ -1398,7 +1398,14 @@ export default function ReportTestClient() {
                   <div className="rounded bg-zinc-50 border border-zinc-200 p-2">
                     <div className="font-semibold text-zinc-700 mb-1">① 사업기간</div>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-                      <span className="text-zinc-400">착공까지</span><span>{b.monthsToStart}개월 ({(b.monthsToStart/12).toFixed(1)}년)</span>
+                      {b.stageElapsedMonths != null ? (<>
+                        <span className="text-zinc-400">단계 시작일</span><span className="text-blue-600">{result.debugParams.stageStartDate ?? "—"}</span>
+                        <span className="text-zinc-400">현재까지 경과</span><span className="text-blue-600 font-semibold">{b.stageElapsedMonths}개월 경과</span>
+                        <span className="text-zinc-400">착공까지 (원본)</span><span className="line-through text-zinc-400">{b.monthsToStartRaw}개월</span>
+                        <span className="text-zinc-400">착공까지 (보정)</span><span className="font-medium">{b.monthsToStart}개월 ({(b.monthsToStart/12).toFixed(1)}년)</span>
+                      </>) : (<>
+                        <span className="text-zinc-400">착공까지</span><span>{b.monthsToStart}개월 ({(b.monthsToStart/12).toFixed(1)}년)</span>
+                      </>)}
                       <span className="text-zinc-400">공사기간</span><span>{b.constructionMonths}개월 ({(b.constructionMonths/12).toFixed(1)}년)</span>
                       <span className="text-zinc-400">총 T</span><span className="font-medium">{b.T}개월 ({(b.T/12).toFixed(1)}년)</span>
                     </div>
