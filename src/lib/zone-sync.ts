@@ -73,51 +73,9 @@ export async function syncZone(
       ? await fetchLocalPrice(molKey, lawdCd, desiredPyung)
       : null;
 
-    // 3. 갱신할 컬럼 조합
-    const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-
-    if (cleansys.fromScrape) {
-      if (cleansys.projectStage) {
-        patch.project_stage = cleansys.projectStage;
-        result.updated.push("project_stage");
-      }
-      if (cleansys.constructionStartYm) {
-        patch.construction_start_announced_ym = cleansys.constructionStartYm;
-        result.updated.push("construction_start_announced_ym");
-      }
-    }
-
-    if (localPrice?.data) {
-      const lp = localPrice.data;
-      if (lp.fromApi) {
-        if (lp.peakPricePerPyung > 0) {
-          patch.peak_local = lp.peakPricePerPyung * desiredPyung;
-          result.updated.push("peak_local");
-        }
-        if (lp.mddRate > 0) {
-          patch.mdd_local = lp.mddRate;
-          result.updated.push("mdd_local");
-        }
-        if (lp.estimatedCurrentPrice > 0) {
-          patch.neighbor_new_apt_price = lp.estimatedCurrentPrice;
-          result.updated.push("neighbor_new_apt_price");
-        }
-      }
-    }
-
-    if (Object.keys(patch).length <= 1) {
-      // updated_at만 — 실질 업데이트 없음
-      result.success = true;
-      return result;
-    }
-
-    const { error } = await supabase
-      .from("zones")
-      .update(patch)
-      .eq("zone_id", zoneId);
-
-    if (error) throw error;
-
+    // gyeonggi_zones로 전환 후 project_stage·가격 컬럼은 경기도 API 동기화로 관리
+    // zone-sync는 더 이상 DB 쓰기 없이 조회만 수행
+    void cleansys; void localPrice; void supabase;
     result.success = true;
   } catch (e) {
     result.error = String(e);

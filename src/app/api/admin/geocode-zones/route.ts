@@ -31,8 +31,8 @@ export async function POST(req: Request) {
 
   // lat/lng 없는 구역 조회
   const { data: zones, error } = await supabase
-    .from("zones")
-    .select("zone_id, zone_name, sigungu")
+    .from("gyeonggi_zones")
+    .select("zone_id, imprv_zone_nm, sigun_nm")
     .or("lat.is.null,lng.is.null")
     .limit(limit);
 
@@ -43,14 +43,14 @@ export async function POST(req: Request) {
   let failed = 0;
 
   for (const zone of zones) {
-    const query = [zone.sigungu, zone.zone_name].filter(Boolean).join(" ");
+    const query = [zone.sigun_nm, zone.imprv_zone_nm].filter(Boolean).join(" ");
     if (!query) { failed++; continue; }
 
     const coords = await geocode(query);
     if (!coords) { failed++; continue; }
 
     const { error: upErr } = await supabase
-      .from("zones")
+      .from("gyeonggi_zones")
       .update({ lat: coords.lat, lng: coords.lng })
       .eq("zone_id", zone.zone_id);
 
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
 
   // 남은 개수 확인
   const { count } = await supabase
-    .from("zones")
+    .from("gyeonggi_zones")
     .select("zone_id", { count: "exact", head: true })
     .or("lat.is.null,lng.is.null");
 

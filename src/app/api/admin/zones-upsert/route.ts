@@ -68,36 +68,17 @@ export async function POST(req: NextRequest) {
   let coords: { lat: number; lng: number } | null = null;
   if (zone.address) coords = await geocode(zone.address);
 
+  // gyeonggi_zones에서 관리자가 직접 수정할 수 있는 필드만 패치
   const patch: Record<string, unknown> = {
-    zone_name: zone.zone_name,
-    project_type: zone.project_type,
-    project_stage: zone.project_stage,
     lawd_cd: zone.lawd_cd || null,
-    p_base: zone.p_base,
-    member_sale_price_per_pyung: zone.member_sale_price_per_pyung,
-    total_appraisal_value: zone.total_appraisal_value,
-    // 면적 계산 필드
-    zone_area_sqm: zone.zone_area_sqm || null,
-    planned_units_member: zone.planned_units_member || null,
-    floor_area_ratio_new: zone.floor_area_ratio_new || null,
-    public_contribution_ratio: zone.public_contribution_ratio || null,
-    incentive_far_bonus: zone.incentive_far_bonus || null,
-    member_avg_pyung: zone.member_avg_pyung || null,
-    efficiency_ratio: zone.efficiency_ratio || null,
-    updated_at: new Date().toISOString(),
   };
   if (coords) { patch.lat = coords.lat; patch.lng = coords.lng; }
 
   if (mode === "add") {
-    const { error } = await supabase.from("zones").insert({
-      ...DEFAULTS,
-      ...patch,
-      zone_id: zone.zone_id,
-      avg_appraisal_rate: zone.project_type === "reconstruction" ? 1.05 : 1.3,
-    });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // 경기도 API 동기화로 추가되는 구역은 여기서 추가 불가 — 403 반환
+    return NextResponse.json({ error: "구역 추가는 경기도 API 동기화로만 가능합니다." }, { status: 403 });
   } else {
-    const { error } = await supabase.from("zones").update(patch).eq("zone_id", zone.zone_id);
+    const { error } = await supabase.from("gyeonggi_zones").update(patch).eq("zone_id", zone.zone_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -110,7 +91,7 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id 필수" }, { status: 400 });
 
   const supabase = createAdminClient();
-  const { error } = await supabase.from("zones").delete().eq("zone_id", id);
+  const { error } = await supabase.from("gyeonggi_zones").delete().eq("zone_id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

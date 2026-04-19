@@ -1,10 +1,3 @@
-/**
- * 구역 데이터 단일 진실 공급원 (Single Source of Truth)
- * zones.ts / zone-coords.ts 대체 — 모든 구역 정보는 zones 테이블에서 읽음
- *
- * 서버 컴포넌트 / Server Action / API Route에서 사용
- */
-
 import { createClient } from "@/lib/supabase/server";
 
 export interface ZoneBasic {
@@ -17,33 +10,46 @@ export interface ZoneBasic {
   lawd_cd: string | null;
 }
 
-/** 전체 구역 목록 (이름 + 타입 + 단계) */
+function inferStage(z: {
+  strcontr_date: string | null;
+  manage_disposit_confmtn_date: string | null;
+  biz_implmtn_confmtn_date: string | null;
+}): string {
+  if (z.strcontr_date)                    return "construction_start";
+  if (z.manage_disposit_confmtn_date)     return "management_disposal";
+  if (z.biz_implmtn_confmtn_date)         return "project_implementation";
+  return "zone_designation";
+}
+
 export async function getAllZones(): Promise<ZoneBasic[]> {
   const supabase = await createClient();
   const { data } = await supabase
-    .from("zones")
-    .select("zone_id, zone_name, project_type, project_stage, lat, lng, lawd_cd")
-    .order("project_type", { ascending: false }) // reconstruction 먼저
-    .order("zone_name");
+    .from("gyeonggi_zones")
+    .select("zone_id, imprv_zone_nm, biz_type_nm, sigun_nm, lat, lng, lawd_cd, strcontr_date, manage_disposit_confmtn_date, biz_implmtn_confmtn_date")
+    .not("zone_id", "is", null)
+    .order("sigun_nm");
   return (data ?? []).map((z) => ({
-    ...z,
-    zone_name: z.zone_name ?? z.zone_id,
+    zone_id:      z.zone_id!,
+    zone_name:    z.imprv_zone_nm ?? z.zone_id,
+    project_type: z.biz_type_nm === "재건축" ? "reconstruction" : "redevelopment",
+    project_stage: inferStage(z),
+    lat:          z.lat ?? null,
+    lng:          z.lng ?? null,
+    lawd_cd:      z.lawd_cd ?? null,
   }));
 }
 
-/** zone_id → zone_name 맵 (계산 엔진, SEO 등에서 사용) */
 export async function getZoneNameMap(): Promise<Record<string, string>> {
   const zones = await getAllZones();
   return Object.fromEntries(zones.map((z) => [z.zone_id, z.zone_name]));
 }
 
-/** 단일 구역 이름 조회 */
 export async function getZoneName(zoneId: string): Promise<string | null> {
   const supabase = await createClient();
   const { data } = await supabase
-    .from("zones")
-    .select("zone_name")
+    .from("gyeonggi_zones")
+    .select("imprv_zone_nm")
     .eq("zone_id", zoneId)
     .single();
-  return data?.zone_name ?? null;
+  return data?.imprv_zone_nm ?? null;
 }

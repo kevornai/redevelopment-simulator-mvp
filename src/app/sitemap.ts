@@ -10,12 +10,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
   const { data } = await supabase
-    .from('zones')
-    .select('zone_id, updated_at');
+    .from('gyeonggi_zones')
+    .select('zone_id, synced_at')
+    .not('zone_id', 'is', null);
 
-  const zoneEntries = (data ?? []).map((z: { zone_id: string; updated_at: string }) => ({
+  const zoneEntries = (data ?? []).map((z: { zone_id: string; synced_at: string }) => ({
     url: `${BASE_URL}/${z.zone_id}`,
-    lastModified: new Date(z.updated_at),
+    lastModified: new Date(z.synced_at ?? Date.now()),
     changeFrequency: 'monthly' as const,
     priority: 0.8,
   }));

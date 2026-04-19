@@ -368,34 +368,34 @@ async function fetchStagePercentiles(): Promise<StagePercentilesCache> {
 
     const [{ data: mdRows }, { data: piRows }, { data: zdRows }] = await Promise.all([
       supabase
-        .from('zones')
-        .select('management_disposal_date, construction_start_date')
-        .not('management_disposal_date', 'is', null)
-        .not('construction_start_date', 'is', null),
+        .from('gyeonggi_zones')
+        .select('manage_disposit_confmtn_date, strcontr_date')
+        .not('manage_disposit_confmtn_date', 'is', null)
+        .not('strcontr_date', 'is', null),
       supabase
-        .from('zones')
-        .select('project_implementation_date, construction_start_date')
-        .not('project_implementation_date', 'is', null)
-        .not('construction_start_date', 'is', null),
+        .from('gyeonggi_zones')
+        .select('biz_implmtn_confmtn_date, strcontr_date')
+        .not('biz_implmtn_confmtn_date', 'is', null)
+        .not('strcontr_date', 'is', null),
       supabase
-        .from('zones')
-        .select('zone_designation_date, construction_start_date')
-        .not('zone_designation_date', 'is', null)
-        .not('construction_start_date', 'is', null),
+        .from('gyeonggi_zones')
+        .select('zone_appont_first_date, strcontr_date')
+        .not('zone_appont_first_date', 'is', null)
+        .not('strcontr_date', 'is', null),
     ]);
 
     const result: StagePercentilesCache = {
       management_disposal: computePercentiles(
-        (mdRows ?? []).map((r: { management_disposal_date: string | null; construction_start_date: string | null }) =>
-          monthsBetweenDates(r.management_disposal_date, r.construction_start_date)).filter((v): v is number => v !== null)
+        (mdRows ?? []).map((r: { manage_disposit_confmtn_date: string | null; strcontr_date: string | null }) =>
+          monthsBetweenDates(r.manage_disposit_confmtn_date, r.strcontr_date)).filter((v): v is number => v !== null)
       ),
       project_implementation: computePercentiles(
-        (piRows ?? []).map((r: { project_implementation_date: string | null; construction_start_date: string | null }) =>
-          monthsBetweenDates(r.project_implementation_date, r.construction_start_date)).filter((v): v is number => v !== null)
+        (piRows ?? []).map((r: { biz_implmtn_confmtn_date: string | null; strcontr_date: string | null }) =>
+          monthsBetweenDates(r.biz_implmtn_confmtn_date, r.strcontr_date)).filter((v): v is number => v !== null)
       ),
       zone_designation: computePercentiles(
-        (zdRows ?? []).map((r: { zone_designation_date: string | null; construction_start_date: string | null }) =>
-          monthsBetweenDates(r.zone_designation_date, r.construction_start_date)).filter((v): v is number => v !== null)
+        (zdRows ?? []).map((r: { zone_appont_first_date: string | null; strcontr_date: string | null }) =>
+          monthsBetweenDates(r.zone_appont_first_date, r.strcontr_date)).filter((v): v is number => v !== null)
       ),
     };
 
@@ -758,6 +758,94 @@ function resolveZoneParams(
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// gyeonggi_zones → ZoneData 매핑
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapGyeonggiZone(z: Record<string, any>): ZoneData {
+  const projectType: "reconstruction" | "redevelopment" =
+    z.biz_type_nm === "재건축" ? "reconstruction" : "redevelopment";
+
+  const parseNum = (v: unknown): number | null => {
+    if (v == null) return null;
+    const n = typeof v === "number" ? v : parseFloat(String(v));
+    return isNaN(n) ? null : n;
+  };
+
+  // 날짜에서 현재 단계 추론
+  let project_stage = "zone_designation";
+  if (z.strcontr_date)                 project_stage = "construction_start";
+  else if (z.manage_disposit_confmtn_date) project_stage = "management_disposal";
+  else if (z.biz_implmtn_confmtn_date) project_stage = "project_implementation";
+
+  return {
+    zone_id:       z.zone_id ?? "",
+    project_type:  projectType,
+    project_stage,
+    zone_name:     z.imprv_zone_nm ?? null,
+    sigungu:       z.sigun_nm ?? null,
+    lawd_cd:       z.lawd_cd ?? null,
+    bjd_code:      null,
+    lat:           parseNum(z.lat),
+    lng:           parseNum(z.lng),
+    api_raw_name:  z.imprv_zone_nm ?? null,
+    // API 면적/세대수
+    zone_area_sqm:           parseNum(z.zone_ar),
+    existing_units_total:    z.existing_hshld_cnt ?? null,
+    planned_units_total:     z.implmtn_hshld_total ?? null,
+    planned_units_member:    z.member_lotout_hshld_cnt ?? null,
+    planned_units_general:   z.general_lotout_hshld_cnt ?? null,
+    floor_area_ratio_new:    parseNum(z.new_far),
+    floor_area_ratio_existing: parseNum(z.existing_far),
+    new_units_sale_u40:      z.new_lotout_u40 ?? null,
+    new_units_sale_40_60:    z.new_lotout_40_60 ?? null,
+    new_units_sale_60_85:    z.new_lotout_60_85 ?? null,
+    new_units_sale_85_135:   z.new_lotout_85_135 ?? null,
+    new_units_sale_o135:     z.new_lotout_o135 ?? null,
+    new_units_sale_total:    z.new_lotout_total ?? null,
+    // API 날짜
+    zone_designation_date:       z.zone_appont_first_date ?? null,
+    association_approval_date:   z.assoctn_found_confmtn_date ?? null,
+    project_implementation_date: z.biz_implmtn_confmtn_date ?? null,
+    management_disposal_date:    z.manage_disposit_confmtn_date ?? null,
+    construction_start_date:     z.strcontr_date ?? null,
+    // 기본값 (파생 가능한 값은 derive-zone-params.ts 에서)
+    avg_appraisal_rate:          projectType === "reconstruction" ? 1.05 : 1.3,
+    base_project_months:         72,
+    t_admin_remaining:           12,
+    delay_conflict:              24,
+    months_to_construction_start: 24,
+    current_construction_cost:   9500000,
+    r_recent: 0.007, r_long: 0.002, decay_factor: 0.04, alpha: 0.002,
+    p_base:                      70000000,
+    peak_local:                  100000000,
+    mdd_local:                   0.22,
+    member_sale_price_per_pyung: 55000000,
+    neighbor_new_apt_price:      2000000000,
+    pf_loan_ratio:               0.5,
+    annual_pf_rate:              0.065,
+    total_floor_area:            200000,
+    total_appraisal_value:       3000000000000,
+    general_sale_area:           70000,
+    member_sale_area:            130000,
+    holding_loan_ratio:          0.6,
+    annual_holding_rate:         0.042,
+    acquisition_tax_rate:        0.028,
+    move_out_cost:               5000000,
+    target_yield_rate:           0.08,
+    contribution_at_construction: 0.5,
+    existing_apt_pyung:          null,
+    land_official_price_per_sqm: null,
+    construction_start_announced_ym: null,
+    member_sale_price_source:    "cost_estimated",
+    public_contribution_ratio:   null,
+    incentive_far_bonus:         null,
+    member_avg_pyung:            null,
+    efficiency_ratio:            null,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // 메인 계산 함수
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -766,17 +854,17 @@ export async function calculateAnalysis(
 ): Promise<{ data: CalculationResult | null; error: string | null }> {
   const supabase = await createClient();
 
-  const { data: zone, error: dbError } = await supabase
-    .from("zones")
+  const { data: rawZone, error: dbError } = await supabase
+    .from("gyeonggi_zones")
     .select("*")
     .eq("zone_id", input.zoneId)
     .single();
 
-  if (dbError || !zone) {
+  if (dbError || !rawZone) {
     return { data: null, error: "해당 구역 데이터를 찾을 수 없습니다." };
   }
 
-  const baseZone = zone as ZoneData;
+  const baseZone = mapGyeonggiZone(rawZone);
   const zoneName = baseZone.zone_name ?? input.zoneId;
 
   // Step 1: 실시간 시장 데이터 수집 — base zone의 lawd_cd/bjd_code/zone_name 사용

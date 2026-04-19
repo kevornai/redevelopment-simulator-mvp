@@ -15,7 +15,7 @@ export async function generateStaticParams() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
-  const { data } = await supabase.from('zones').select('zone_id');
+  const { data } = await supabase.from('gyeonggi_zones').select('zone_id');
   return (data ?? []).map((z: { zone_id: string }) => ({ zone: z.zone_id }));
 }
 
@@ -23,11 +23,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { zone } = await params;
   const supabase = await createClient();
   const { data } = await supabase
-    .from('zones')
-    .select('zone_name')
+    .from('gyeonggi_zones')
+    .select('imprv_zone_nm')
     .eq('zone_id', zone)
     .single();
-  const zoneName = data?.zone_name;
+  const zoneName = data?.imprv_zone_nm;
   if (!zoneName) return {};
   return {
     title: `${zoneName} 재개발 분담금·수익 시뮬레이션 | Revo`,
@@ -39,11 +39,11 @@ export default async function ZonePage({ params }: Props) {
   const { zone } = await params;
   const supabase = await createClient();
   const { data } = await supabase
-    .from('zones')
-    .select('zone_name')
+    .from('gyeonggi_zones')
+    .select('imprv_zone_nm')
     .eq('zone_id', zone)
     .single();
-  const zoneName = data?.zone_name;
+  const zoneName = data?.imprv_zone_nm;
   if (!zoneName) notFound();
 
   return (

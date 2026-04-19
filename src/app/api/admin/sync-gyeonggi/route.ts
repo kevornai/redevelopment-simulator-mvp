@@ -1,167 +1,124 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-type GyeonggiRow = {
-  SIGUN_NM: string;
-  SIGUN_CD: string;
-  BIZ_TYPE_NM: string;
-  IMPRV_ZONE_NM: string;
-  IMPRV_ZONE_APPONT_FIRST_DE: string | null;
-  PROPLSN_COMMISN_APRV_DE: string | null;
-  ASSOCTN_FOUND_CONFMTN_DE: string | null;
-  BIZ_IMPLMTN_CONFMTN_DE: string | null;
-  MANAGE_DISPOSIT_CONFMTN_DE: string | null;
-  STRCONTR_DE: string | null;
-  GENRL_LOTOUT_DE: string | null;
-  COMPLTN_DE: string | null;
-};
+// 경기도 API 원본 필드 타입
+type GRow = Record<string, string | null>;
 
-/** 경기도 API 원본 이름 → zone_id 생성
- *  "수원시", "권선 2구역(성일아파트)" → "수원시_권선2구역"
- */
-function makeZoneId(sigungu: string, rawName: string): string {
-  const city = sigungu.split(/\s/)[0];
-  const name = rawName
-    .replace(/\s+/g, "")
-    .replace(/\([^)]*\)/g, "")
-    .replace(/(아파트|주공아파트|주공|단지)$/, "");
+function nd(v: string | null | undefined): string | null {
+  if (!v) return null;
+  if (/^\d{8}$/.test(v)) return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+  return v;
+}
+function ni(v: string | null | undefined): number | null {
+  if (!v) return null;
+  const n = parseInt(v, 10);
+  return isNaN(n) ? null : n;
+}
+function makeZoneId(sigunNm: string, zoneName: string): string {
+  const city = sigunNm.split(/\s/)[0];
+  const name = zoneName.replace(/\s+/g, "").replace(/\([^)]*\)/g, "").replace(/(아파트|주공아파트|주공|단지)$/, "");
   return `${city}_${name}`;
 }
 
-/** 날짜 문자열 정규화: YYYYMMDD → YYYY-MM-DD (이미 하이픈 형식이면 그대로) */
-function normalizeDate(d: string | null): string | null {
-  if (!d) return null;
-  if (/^\d{8}$/.test(d)) return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
-  return d;
-}
-
-/** 날짜 있는 개수 기준으로 현재 단계 추정 */
-function inferStage(r: GyeonggiRow): string {
-  if (r.STRCONTR_DE)              return "construction_start";
-  if (r.MANAGE_DISPOSIT_CONFMTN_DE) return "management_disposal";
-  if (r.BIZ_IMPLMTN_CONFMTN_DE)  return "project_implementation";
-  if (r.ASSOCTN_FOUND_CONFMTN_DE) return "association_established";
-  return "zone_designation";
-}
-
-// zones 테이블에 새 구역 삽입 시 사용하는 기본값
-const ZONE_DEFAULTS = {
-  avg_appraisal_rate: 1.3,
-  base_project_months: 72,
-  t_admin_remaining: 12,
-  delay_conflict: 24,
-  months_to_construction_start: 24,
-  current_construction_cost: 9500000,
-  r_recent: 0.007,
-  r_long: 0.002,
-  decay_factor: 0.04,
-  alpha: 0.002,
-  peak_local: 100000000,
-  mdd_local: 0.22,
-  member_sale_price_source: "cost_estimated",
-  neighbor_new_apt_price: 2000000000,
-  pf_loan_ratio: 0.5,
-  annual_pf_rate: 0.065,
-  total_floor_area: 200000,
-  total_appraisal_value: 3000000000000,
-  general_sale_area: 70000,
-  member_sale_area: 130000,
-  holding_loan_ratio: 0.6,
-  annual_holding_rate: 0.042,
-  acquisition_tax_rate: 0.028,
-  move_out_cost: 5000000,
-  target_yield_rate: 0.08,
-  contribution_at_construction: 0.5,
-  p_base: 70000000,
-  member_sale_price_per_pyung: 55000000,
-};
-
 export async function POST(req: NextRequest) {
   try {
-    const rows: GyeonggiRow[] = await req.json();
+    const rows: GRow[] = await req.json();
     if (!Array.isArray(rows) || rows.length === 0) {
-      return NextResponse.json({ saved: 0, inserted: 0, error: "rows가 비어있습니다." });
+      return NextResponse.json({ saved: 0, error: "rows가 비어있습니다." });
     }
 
     const supabase = await createClient();
 
-    // api_source_id 중복 제거 (같은 배치 내)
+    // source_id 중복 제거
     const deduped = Array.from(
       new Map(
-        rows.map((r) => [
-          `${r.SIGUN_CD}_${r.IMPRV_ZONE_NM.replace(/\s+/g, "_")}`,
-          r,
-        ])
-      ).entries()
-    ).map(([sourceId, r]) => ({ sourceId, row: r }));
-
-    // 이미 연결된 zones 조회 (api_source_id 기준)
-    const { data: existingZones } = await supabase
-      .from("zones")
-      .select("zone_id, api_source_id")
-      .eq("api_source", "gyeonggi_api")
-      .not("api_source_id", "is", null);
-
-    const linkedMap = new Map(
-      (existingZones ?? []).map((z: { zone_id: string; api_source_id: string }) => [
-        z.api_source_id,
-        z.zone_id,
-      ])
+        rows
+          .filter(r => r.BIZ_TYPE_NM === "재건축" || r.BIZ_TYPE_NM === "재개발")
+          .map(r => {
+            const sourceId = `${r.SIGUN_CD}_${(r.IMPRV_ZONE_NM ?? "").replace(/\s+/g, "_")}`;
+            return [sourceId, r] as [string, GRow];
+          })
+      ).values()
     );
 
-    let updated = 0;
-    let inserted = 0;
+    const records = deduped.map(r => ({
+      zone_id:     makeZoneId(r.SIGUN_NM ?? "", r.IMPRV_ZONE_NM ?? ""),
+      source_id:   `${r.SIGUN_CD}_${(r.IMPRV_ZONE_NM ?? "").replace(/\s+/g, "_")}`,
+      sigun_nm:    r.SIGUN_NM,
+      sigun_cd:    r.SIGUN_CD,
+      biz_type_nm: r.BIZ_TYPE_NM,
+      biz_step_nm: r.BIZ_STEP_NM,
+      imprv_zone_nm: r.IMPRV_ZONE_NM,
+      locplc_addr:   r.LOCPLC_ADDR,
+      zone_ar:       r.ZONE_AR ? parseFloat(r.ZONE_AR) : null,
+      // 기존주택
+      existing_compltn_year:  r.STNG_HOUSNG_COMPLTN_PERD,
+      existing_building_cnt:  ni(r.KISTNG_HOUSNG_COPPER_CNT),
+      existing_hshld_cnt:     ni(r.XISTNG_HOUSNG_HSHLD_CNT),
+      existing_hshld_u40:     ni(r.KISTNG_HSHLD_CNT_40_DESC),
+      existing_hshld_40_60:   ni(r.STNG_HSHLD_CNT_40_60_DESC),
+      existing_hshld_60_85:   ni(r.STNG_HSHLD_CNT_60_85_DESC),
+      existing_hshld_85_135:  ni(r.STNG_HSHLD_CNT_85_135_DESC),
+      existing_hshld_o135:    ni(r.ISTNG_HSHLD_CNT_135_DESC),
+      // 사업시행 세대수
+      implmtn_hshld_total:      ni(r.I_IMPLMTN_HSHLD_CNT_TOTAL),
+      member_lotout_hshld_cnt:  ni(r.SOCNTMB_LOTOUT_HSHLD_CNT),
+      general_lotout_hshld_cnt: ni(r.GENRL_LOTOUT_HSHLD_CNT),
+      rent_hshld_cnt:           ni(r.RENT_HSHLD_CNT),
+      // 신축 분양
+      new_lotout_total:   ni(r.NCONST_LOTOUT_HOUSNG_CNT),
+      new_lotout_u40:     ni(r.NST_HUSNG_LTUTAR40MUD_DESC),
+      new_lotout_40_60:   ni(r.NST_HUSNG_LTUTAR4060M_DESC),
+      new_lotout_60_85:   ni(r.NST_HUSNG_LTUTAR6085M_DESC),
+      new_lotout_85_135:  ni(r.ST_HUSNG_LTUTAR85135M_DESC),
+      new_lotout_o135:    ni(r.ST_HUSNGLTUTAR135MABV_DESC),
+      // 신축 임대
+      new_rent_total:  ni(r.NWCONST_RENT_HOUSING_CNT),
+      new_rent_u40:    ni(r.RNST_HUSNGRENTAR40MUD_DESC),
+      new_rent_40_60:  ni(r.RNST_HUSNGRENTAR4060M_DESC),
+      new_rent_60_85:  ni(r.NST_HUSNGRENTAR_AR6085M_DESC),
+      // 용적률
+      existing_far: r.EXISTING_VOLUMRT_DESC,
+      new_far:      r.NWCONST_VOLUMRT_DESC,
+      // 조합 정보
+      land_owner_cnt:  ni(r.LAND_OWNER_CNT),
+      member_cnt:      ni(r.ASOCNTMB_CNT),
+      biz_implmntr_nm: r.BIZ_IMPLMNTR_NM,
+      biz_begin_date:  r.BIZ_PREARNGE_BEGIN_PERD,
+      biz_end_date:    r.BIZ_PREARNGE_PERD,
+      // 날짜
+      rv_prearnge_zone_notif_date:  nd(r.RV_PREARNGE_ZONE_NOTIFC_DE),
+      rv_zone_appont_date:          nd(r.RV_ZONE_APPONT_PREARNGE_DE),
+      imprv_plan_foundng_date:      nd(r.IMPRV_PLAN_FOUNDNG_DE),
+      zone_appont_first_date:       nd(r.IMPRV_ZONE_APPONT_FIRST_DE ?? r.PRV_ZONE_APPONT_FIRST_DE),
+      zone_appont_change_date:      nd(r.PRV_ZONE_APPONT_CHANGE_DE),
+      proplsn_commisn_aprv_date:    nd(r.PROPLSN_COMMISN_APRV_DE),
+      prepar_evaltn_date:           nd(r.PREPAR_EVALTN_DE),
+      safe_diagns_date:             nd(r.SAFE_DIAGNS_DE),
+      assoctn_found_confmtn_date:   nd(r.ASSOCTN_FOUND_CONFMTN_DE ?? r.SSOCTN_FOUND_CONFMTN_DE),
+      biz_implmtn_confmtn_date:     nd(r.BIZ_IMPLMTN_CONFMTN_DE),
+      manage_disposit_confmtn_date: nd(r.MANAGE_DISPOSIT_CONFMTN_DE ?? r.NAGE_DISPOSIT_CONFMTN_DE),
+      strcontr_date:                nd(r.STRCONTR_DE),
+      genrl_lotout_date:            nd(r.GENRL_LOTOUT_DE),
+      compltn_date:                 nd(r.COMPLTN_DE),
+      transfr_notifc_date:          nd(r.TRANSFR_NOTIFC_DE),
+      now_proplsn_matr_desc:        r.NOW_PROPLSN_MATR_DESC,
+      synced_at: new Date().toISOString(),
+    }));
 
-    for (const { sourceId, row: r } of deduped) {
-      const dates = {
-        zone_designation_date:       normalizeDate(r.IMPRV_ZONE_APPONT_FIRST_DE),
-        association_approval_date:   normalizeDate(r.ASSOCTN_FOUND_CONFMTN_DE),
-        project_implementation_date: normalizeDate(r.BIZ_IMPLMTN_CONFMTN_DE),
-        management_disposal_date:    normalizeDate(r.MANAGE_DISPOSIT_CONFMTN_DE),
-        construction_start_date:     normalizeDate(r.STRCONTR_DE),
-        general_sale_date:           normalizeDate(r.GENRL_LOTOUT_DE),
-        completion_date:             normalizeDate(r.COMPLTN_DE),
-      };
+    const { error, count } = await supabase
+      .from("gyeonggi_zones")
+      .upsert(records, { onConflict: "source_id", count: "exact" });
 
-      if (linkedMap.has(sourceId)) {
-        // 기존 연결된 구역 — 날짜만 갱신
-        const { error } = await supabase
-          .from("zones")
-          .update({ ...dates, api_raw_name: r.IMPRV_ZONE_NM, updated_at: new Date().toISOString() })
-          .eq("zone_id", linkedMap.get(sourceId)!);
-        if (!error) updated++;
-      } else {
-        // 새 구역 삽입
-        const zoneId = makeZoneId(r.SIGUN_NM, r.IMPRV_ZONE_NM);
-        const projectType =
-          r.BIZ_TYPE_NM === "재건축" ? "reconstruction"
-          : r.BIZ_TYPE_NM === "재개발" ? "redevelopment"
-          : null;
-        if (!projectType) continue;
-
-        const { error } = await supabase.from("zones").insert({
-          ...ZONE_DEFAULTS,
-          zone_id: zoneId,
-          zone_name: r.IMPRV_ZONE_NM,
-          api_raw_name: r.IMPRV_ZONE_NM,
-          api_source: "gyeonggi_api",
-          api_source_id: sourceId,
-          sido: "경기도",
-          sigungu: r.SIGUN_NM,
-          project_type: projectType,
-          project_stage: inferStage(r),
-          avg_appraisal_rate: projectType === "reconstruction" ? 1.05 : 1.3,
-          ...dates,
-        });
-        if (!error) inserted++;
-      }
+    if (error) {
+      return NextResponse.json({ saved: 0, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ saved: deduped.length, updated, inserted });
+    return NextResponse.json({ saved: count ?? records.length });
   } catch (e) {
     console.error("[sync-gyeonggi] error:", e);
     return NextResponse.json(
-      { saved: 0, updated: 0, inserted: 0, error: `서버 오류: ${e instanceof Error ? e.message : String(e)}` },
+      { saved: 0, error: `서버 오류: ${e instanceof Error ? e.message : String(e)}` },
       { status: 500 }
     );
   }
