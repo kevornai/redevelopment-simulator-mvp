@@ -779,10 +779,11 @@ async function fetchGyeonggiStageDates(
   if (!lawdCd?.startsWith("41")) return null;
 
   try {
-    // IMPRV_ZONE_NM 파라미터로 직접 구역명 필터 호출
+    // SIGUN_CD로 해당 시군 필터 → 전체 결과에서 구역명 클라이언트 매칭
+    const sigunCd = lawdCd.slice(0, 5);
     const params = new URLSearchParams({
-      KEY: apiKey, Type: "json", pIndex: "1", pSize: "10",
-      IMPRV_ZONE_NM: zoneName,
+      KEY: apiKey, Type: "json", pIndex: "1", pSize: "100",
+      SIGUN_CD: sigunCd,
     });
 
     const res = await fetch(`https://openapi.gg.go.kr/GenrlimprvBizpropls?${params}`, {
@@ -803,7 +804,10 @@ async function fetchGyeonggiStageDates(
       STRCONTR_DE?: string | null;
     };
     const rows: GRow[] = ((root[1] as { row?: GRow[] }).row) ?? [];
-    const matched = rows[0];
+
+    // zone_name에서 핵심 키워드 추출 (마지막 _ 이후 또는 전체)
+    const keyTerm = zoneName.includes("_") ? zoneName.split("_").pop()! : zoneName;
+    const matched = rows.find(r => r.IMPRV_ZONE_NM.includes(keyTerm));
     if (!matched) return null;
 
     return {
