@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
   if (coords) { patch.lat = coords.lat; patch.lng = coords.lng; }
 
   if (mode === "add") {
-    const { error } = await supabase.from("zones_data").insert({
+    const { error } = await supabase.from("zones").insert({
       ...DEFAULTS,
       ...patch,
       zone_id: zone.zone_id,
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest) {
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   } else {
-    const { error } = await supabase.from("zones_data").update(patch).eq("zone_id", zone.zone_id);
+    const { error } = await supabase.from("zones").update(patch).eq("zone_id", zone.zone_id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -110,7 +110,7 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id 필수" }, { status: 400 });
 
   const supabase = createAdminClient();
-  const { error } = await supabase.from("zones_data").delete().eq("zone_id", id);
+  const { error } = await supabase.from("zones").delete().eq("zone_id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

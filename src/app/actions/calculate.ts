@@ -306,6 +306,8 @@ interface ZoneData {
   project_implementation_date: string | null;
   management_disposal_date: string | null;
   construction_start_date: string | null;
+  // 경기도 API 연결 정보
+  api_raw_name: string | null;
 }
 
 // ─── 단계 순서 (낮을수록 초기 단계) ───────────────────────────────────────────
@@ -366,17 +368,17 @@ async function fetchStagePercentiles(): Promise<StagePercentilesCache> {
 
     const [{ data: mdRows }, { data: piRows }, { data: zdRows }] = await Promise.all([
       supabase
-        .from('zones_data')
+        .from('zones')
         .select('management_disposal_date, construction_start_date')
         .not('management_disposal_date', 'is', null)
         .not('construction_start_date', 'is', null),
       supabase
-        .from('zones_data')
+        .from('zones')
         .select('project_implementation_date, construction_start_date')
         .not('project_implementation_date', 'is', null)
         .not('construction_start_date', 'is', null),
       supabase
-        .from('zones_data')
+        .from('zones')
         .select('zone_designation_date, construction_start_date')
         .not('zone_designation_date', 'is', null)
         .not('construction_start_date', 'is', null),
@@ -754,70 +756,6 @@ function resolveZoneParams(
   };
 }
 
-// ─── 단계 날짜 조회 — stage_timeline_raw DB 캐시 (IP 제한 없음) ────────────────
-
-interface StageDateResult extends Pick<ZoneData,
-  "zone_designation_date" | "association_approval_date" |
-  "project_implementation_date" | "management_disposal_date" | "construction_start_date"
-> {
-  matchedZoneName: string;
-}
-
-/**
- * stage_timeline_raw에서 구역의 단계 날짜 조회
- * - cleansys.or.kr 및 경기도 API 배치 데이터를 DB 캐시에서 읽음 (IP 제한 없음)
- * - zone_name 마지막 _ 이후 키워드로 ILIKE 검색
- */
-async function fetchStageDatesFromCache(
-  zoneName: string,
-  sigungu: string | null,
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<StageDateResult | null> {
-  const parts = zoneName.split("_").filter(Boolean);
-  // 시도 순서: "구역/지구" 포함 세그먼트 → 나머지 세그먼트 (도시명 제외)
-  const keyTerms = [
-    ...new Set([
-      parts.find(p => /구역|지구/.test(p)),
-      ...parts.slice(1),       // 첫 세그먼트(도시명) 제외
-    ].filter((v): v is string => !!v && v.length >= 2)),
-  ];
-  if (!keyTerms.length) return null;
-
-  // "수원시 권선구" → "수원시" — stage_timeline_raw.sigungu 는 시 단위
-  const sigunguCity = sigungu?.split(" ")[0] ?? null;
-
-  const scoreRow = (r: { date_management_disposal: unknown; date_implementation: unknown; date_construction_start: unknown; date_zone_designation: unknown }) =>
-    (r.date_management_disposal ? 2 : 0) + (r.date_implementation ? 2 : 0) +
-    (r.date_construction_start ? 1 : 0) + (r.date_zone_designation ? 1 : 0);
-
-  try {
-    for (const keyTerm of keyTerms) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let q: any = supabase
-        .from("stage_timeline_raw")
-        .select("zone_name,date_zone_designation,date_association,date_implementation,date_management_disposal,date_construction_start")
-        .ilike("zone_name", `%${keyTerm}%`);
-      if (sigunguCity) q = q.ilike("sigungu", `%${sigunguCity}%`);
-      const { data } = await q.limit(5);
-      if (!data?.length) continue;
-
-      const best = (data as typeof data[]).reduce((a: typeof data[0], b: typeof data[0]) =>
-        scoreRow(a) >= scoreRow(b) ? a : b
-      );
-      return {
-        matchedZoneName:             best.zone_name as string,
-        zone_designation_date:       best.date_zone_designation as string | null,
-        association_approval_date:   best.date_association as string | null,
-        project_implementation_date: best.date_implementation as string | null,
-        management_disposal_date:    best.date_management_disposal as string | null,
-        construction_start_date:     best.date_construction_start as string | null,
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 메인 계산 함수
@@ -829,7 +767,7 @@ export async function calculateAnalysis(
   const supabase = await createClient();
 
   const { data: zone, error: dbError } = await supabase
-    .from("zones_data")
+    .from("zones")
     .select("*")
     .eq("zone_id", input.zoneId)
     .single();
@@ -859,24 +797,8 @@ export async function calculateAnalysis(
   let zForApi: ZoneData = { ...baseZone, ...estimatedOverrides };
 
   // Step 3b: 단계 날짜 자동 보완 — stage_timeline_raw DB 캐시에서 조회 (IP 제한 없음)
-  const needsDateFetch =
-    !zForApi.zone_designation_date || !zForApi.project_implementation_date ||
-    !zForApi.management_disposal_date || !zForApi.construction_start_date;
-  let gyeonggiApiMatchedZone: string | null = null;
-  if (needsDateFetch && zoneName) {
-    const gyeonggiDates = await fetchStageDatesFromCache(zoneName, baseZone.sigungu ?? null, supabase);
-    if (gyeonggiDates) {
-      gyeonggiApiMatchedZone = gyeonggiDates.matchedZoneName;
-      zForApi = {
-        ...zForApi,
-        zone_designation_date:       zForApi.zone_designation_date       ?? gyeonggiDates.zone_designation_date,
-        association_approval_date:   zForApi.association_approval_date   ?? gyeonggiDates.association_approval_date,
-        project_implementation_date: zForApi.project_implementation_date ?? gyeonggiDates.project_implementation_date,
-        management_disposal_date:    zForApi.management_disposal_date    ?? gyeonggiDates.management_disposal_date,
-        construction_start_date:     zForApi.construction_start_date     ?? gyeonggiDates.construction_start_date,
-      };
-    }
-  }
+  // zones 테이블에 날짜가 직접 저장되어 있으므로 별도 조회 불필요
+  const gyeonggiApiMatchedZone: string | null = baseZone.api_raw_name ?? null;
 
   // Step 4: 공시가 — 사용자 입력 우선, 없으면 NSDI 자동조회 결과 사용
   const effectiveOfficialValuation =

@@ -1,6 +1,6 @@
 /**
  * 구역 데이터 자동 동기화
- * 정비몽땅 스크래핑 + MOLIT 실거래가 → zones_data 테이블 갱신
+ * 정비몽땅 스크래핑 + MOLIT 실거래가 → zones 테이블 갱신
  *
  * 갱신 대상:
  *   - project_stage        → 정비몽땅 스크래핑
@@ -112,7 +112,7 @@ export async function syncZone(
     }
 
     const { error } = await supabase
-      .from("zones_data")
+      .from("zones")
       .update(patch)
       .eq("zone_id", zoneId);
 

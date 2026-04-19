@@ -1,6 +1,6 @@
 /**
  * 구역 데이터 단일 진실 공급원 (Single Source of Truth)
- * zones.ts / zone-coords.ts 대체 — 모든 구역 정보는 zones_data 테이블에서 읽음
+ * zones.ts / zone-coords.ts 대체 — 모든 구역 정보는 zones 테이블에서 읽음
  *
  * 서버 컴포넌트 / Server Action / API Route에서 사용
  */
@@ -21,7 +21,7 @@ export interface ZoneBasic {
 export async function getAllZones(): Promise<ZoneBasic[]> {
   const supabase = await createClient();
   const { data } = await supabase
-    .from("zones_data")
+    .from("zones")
     .select("zone_id, zone_name, project_type, project_stage, lat, lng, lawd_cd")
     .order("project_type", { ascending: false }) // reconstruction 먼저
     .order("zone_name");
@@ -41,7 +41,7 @@ export async function getZoneNameMap(): Promise<Record<string, string>> {
 export async function getZoneName(zoneId: string): Promise<string | null> {
   const supabase = await createClient();
   const { data } = await supabase
-    .from("zones_data")
+    .from("zones")
     .select("zone_name")
     .eq("zone_id", zoneId)
     .single();

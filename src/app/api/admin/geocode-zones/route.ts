@@ -1,7 +1,7 @@
 /**
  * 좌표 없는 구역 일괄 지오코딩 API
  * POST /api/admin/geocode-zones
- * zones_data에서 lat/lng NULL인 구역을 찾아 카카오 REST API로 좌표 채움
+ * zones에서 lat/lng NULL인 구역을 찾아 카카오 REST API로 좌표 채움
  */
 
 import { NextResponse } from "next/server";
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
   // lat/lng 없는 구역 조회
   const { data: zones, error } = await supabase
-    .from("zones_data")
+    .from("zones")
     .select("zone_id, zone_name, sigungu")
     .or("lat.is.null,lng.is.null")
     .limit(limit);
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     if (!coords) { failed++; continue; }
 
     const { error: upErr } = await supabase
-      .from("zones_data")
+      .from("zones")
       .update({ lat: coords.lat, lng: coords.lng })
       .eq("zone_id", zone.zone_id);
 
@@ -59,7 +59,7 @@ export async function POST(req: Request) {
 
   // 남은 개수 확인
   const { count } = await supabase
-    .from("zones_data")
+    .from("zones")
     .select("zone_id", { count: "exact", head: true })
     .or("lat.is.null,lng.is.null");
 

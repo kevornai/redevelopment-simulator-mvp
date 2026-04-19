@@ -10,7 +10,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
   const { data } = await supabase
-    .from('zones_data')
+    .from('zones')
     .select('zone_id, updated_at');
 
   const zoneEntries = (data ?? []).map((z: { zone_id: string; updated_at: string }) => ({

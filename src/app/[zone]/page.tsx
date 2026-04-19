@@ -15,7 +15,7 @@ export async function generateStaticParams() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
-  const { data } = await supabase.from('zones_data').select('zone_id');
+  const { data } = await supabase.from('zones').select('zone_id');
   return (data ?? []).map((z: { zone_id: string }) => ({ zone: z.zone_id }));
 }
 
@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { zone } = await params;
   const supabase = await createClient();
   const { data } = await supabase
-    .from('zones_data')
+    .from('zones')
     .select('zone_name')
     .eq('zone_id', zone)
     .single();
@@ -39,7 +39,7 @@ export default async function ZonePage({ params }: Props) {
   const { zone } = await params;
   const supabase = await createClient();
   const { data } = await supabase
-    .from('zones_data')
+    .from('zones')
     .select('zone_name')
     .eq('zone_id', zone)
     .single();

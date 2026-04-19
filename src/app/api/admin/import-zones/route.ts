@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < records.length; i += BATCH) {
     const batch = records.slice(i, i + BATCH);
     const { error } = await supabase
-      .from("zones_data")
+      .from("zones")
       .upsert(batch, { onConflict: "zone_id", ignoreDuplicates: false });
 
     if (error) {

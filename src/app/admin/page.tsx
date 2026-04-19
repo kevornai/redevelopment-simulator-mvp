@@ -33,7 +33,7 @@ export default function AdminPage() {
   const [result, setResult] = useState<{ sent?: number; error?: string } | null>(null);
 
   const [syncStatus, setSyncStatus] = useState<'idle' | 'fetching' | 'saving' | 'done' | 'error'>('idle');
-  const [syncResult, setSyncResult] = useState<{ saved?: number; synced?: number; error?: string } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ saved?: number; updated?: number; inserted?: number; error?: string } | null>(null);
 
   async function handleGyeonggiSync() {
     setSyncStatus('fetching');
@@ -136,7 +136,7 @@ export default function AdminPage() {
         <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-6">
           <h2 className="text-zinc-900 font-bold text-lg mb-1">경기도 단계 날짜 동기화</h2>
           <p className="text-zinc-400 text-sm mb-4">
-            경기도 데이터드림 API → stage_timeline_raw → zones_data 순으로 단계별 날짜를 업데이트합니다.<br/>
+            경기도 데이터드림 API → zones 테이블에 직접 저장합니다.<br/>
             <span className="text-amber-500">한국 IP에서만 동작합니다. (경기도 API 해외 IP 차단)</span>
           </p>
           <button
@@ -148,7 +148,7 @@ export default function AdminPage() {
           </button>
           {syncStatus === 'done' && syncResult && (
             <div className="mt-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
-              ✅ 수집 {syncResult.saved}건 저장 · zones_data {syncResult.synced}건 업데이트
+              ✅ 수집 {syncResult.saved}건 · 업데이트 {syncResult.updated}건 · 신규 {syncResult.inserted}건
             </div>
           )}
           {syncStatus === 'error' && (

@@ -13,7 +13,7 @@ export async function GET() {
   const supabase = await createClient();
 
   const { data, error } = await supabase
-    .from("zones_data")
+    .from("zones")
     .select("zone_id, zone_name, project_type, project_stage, lat, lng")
     .not("lat", "is", null)
     .not("lng", "is", null)

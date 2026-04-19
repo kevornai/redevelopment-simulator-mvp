@@ -168,7 +168,7 @@ export default function AdminZonesPage() {
       <div className="bg-white border-b border-zinc-200 px-8 py-4 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-zinc-900">구역 관리</h1>
-          <p className="text-xs text-zinc-400 mt-0.5">zones_data 테이블 · 단일 진실 공급원</p>
+          <p className="text-xs text-zinc-400 mt-0.5">zones 테이블 · 단일 진실 공급원</p>
         </div>
         <div className="flex items-center gap-3">
           <Link
