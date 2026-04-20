@@ -58,51 +58,49 @@ async function geocodeWithFallbacks(primary: string | null, zoneName: string): P
 }
 
 export async function POST(req: Request) {
-  const supabase = createAdminClient();
+  try {
+    const supabase = createAdminClient();
 
-  const { limit = 20 } = await req.json().catch(() => ({ limit: 20 }));
+    const { limit = 10 } = await req.json().catch(() => ({ limit: 10 }));
 
-  // lat/lng 없는 구역 조회 — locplc_addr 포함
-  const { data: zones, error } = await supabase
-    .from("gyeonggi_zones")
-    .select("zone_id, imprv_zone_nm, sigun_nm, locplc_addr")
-    .or("lat.is.null,lng.is.null")
-    .not("zone_id", "is", null)
-    .limit(limit);
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!zones?.length) return NextResponse.json({ done: true, success: 0, failed: 0, remaining: 0 });
-
-  let success = 0;
-  let failed = 0;
-
-  for (const zone of zones) {
-    // locplc_addr 우선, 없으면 "시군명 구역명"
-    // "일원", "일대" 등 비주소 suffix 제거
-    const primary   = zone.locplc_addr?.trim().replace(/\s*(일원|일대|외)\s*$/, "") || null;
-    const fallback  = [zone.sigun_nm, zone.imprv_zone_nm].filter(Boolean).join(" ");
-    const query     = primary || fallback;
-
-    if (!query) { failed++; continue; }
-
-    const coords = await geocodeWithFallbacks(primary, fallback);
-
-    if (!coords) { failed++; continue; }
-
-    const { error: upErr } = await supabase
+    const { data: zones, error } = await supabase
       .from("gyeonggi_zones")
-      .update({ lat: coords.lat, lng: coords.lng })
-      .eq("zone_id", zone.zone_id);
+      .select("zone_id, imprv_zone_nm, sigun_nm, locplc_addr")
+      .or("lat.is.null,lng.is.null")
+      .not("zone_id", "is", null)
+      .limit(limit);
 
-    if (upErr) { failed++; } else { success++; }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!zones?.length) return NextResponse.json({ done: true, success: 0, failed: 0, remaining: 0 });
+
+    let success = 0;
+    let failed = 0;
+
+    for (const zone of zones) {
+      const primary  = zone.locplc_addr?.trim().replace(/\s*(일원|일대|외)\s*$/, "") || null;
+      const fallback = [zone.sigun_nm, zone.imprv_zone_nm].filter(Boolean).join(" ");
+      if (!fallback) { failed++; continue; }
+
+      const coords = await geocodeWithFallbacks(primary, fallback);
+
+      if (!coords) { failed++; continue; }
+
+      const { error: upErr } = await supabase
+        .from("gyeonggi_zones")
+        .update({ lat: coords.lat, lng: coords.lng })
+        .eq("zone_id", zone.zone_id);
+
+      if (upErr) { failed++; } else { success++; }
+    }
+
+    const { count } = await supabase
+      .from("gyeonggi_zones")
+      .select("zone_id", { count: "exact", head: true })
+      .or("lat.is.null,lng.is.null")
+      .not("zone_id", "is", null);
+
+    return NextResponse.json({ done: (count ?? 0) === 0, success, failed, remaining: count ?? 0 });
+  } catch (e) {
+    return NextResponse.json({ error: `서버 오류: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
   }
-
-  // 남은 개수 확인
-  const { count } = await supabase
-    .from("gyeonggi_zones")
-    .select("zone_id", { count: "exact", head: true })
-    .or("lat.is.null,lng.is.null")
-    .not("zone_id", "is", null);
-
-  return NextResponse.json({ done: (count ?? 0) === 0, success, failed, remaining: count ?? 0 });
 }

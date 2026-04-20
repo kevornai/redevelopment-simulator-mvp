@@ -213,7 +213,7 @@ export default function AdminPage() {
           )}
           {geocodeStatus === 'error' && (
             <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
-              ❌ 오류 발생 (성공 {geocodeProgress?.success ?? 0}건 처리됨)
+              ❌ 오류 발생 (성공 {geocodeProgress?.success ?? 0}건 처리됨) — 브라우저 콘솔에서 상세 확인
             </div>
           )}
         </div>
