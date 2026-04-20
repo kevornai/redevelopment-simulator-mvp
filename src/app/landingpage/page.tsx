@@ -31,13 +31,13 @@ function Hero({ count }: { count: number }) {
         </h1>
 
         <p className="text-zinc-600 text-lg leading-relaxed max-w-xl mx-auto mb-10">
-          중개소의 브리핑에 수억 원을 걸지 마세요.
+          쉽게 수억 원을 걸지 마세요.
           <br />
           알고리즘 기반 시뮬레이터로{' '}
           <strong className="text-zinc-800">'공사비 인상'</strong>과{' '}
           <strong className="text-zinc-800">'금리 변동'</strong>을 반영한
           <br />
-          <strong className="text-zinc-800">3가지 미래 수익 시나리오</strong>를 미리 검증하세요.
+          <strong className="text-zinc-800">3가지 분담금 시나리오</strong>를 미리 검증하세요.
         </p>
 
         <a
@@ -52,7 +52,7 @@ function Hero({ count }: { count: number }) {
           <strong className="text-zinc-700 font-bold">
             {count.toLocaleString()}명
           </strong>
-          이 대기 중 · 무료 · 30초 완료
+          이 대기 중 · 1회 무료 · 15page 리포트
         </p>
       </div>
     </section>
@@ -93,7 +93,7 @@ function ProblemSection() {
             투자자들의 가장 큰 걱정
           </p>
           <h2 className="text-zinc-900 font-bold text-3xl sm:text-4xl leading-tight">
-            이 불안감, 혹시 익숙하신가요?
+            혹시 <span className="text-red-600">이런 경험</span> 있으시죠?
           </h2>
         </div>
 
@@ -129,13 +129,14 @@ function AgitationSection() {
           <h2 className="text-white font-bold text-3xl sm:text-4xl leading-tight mb-6">
             지금 확인하지 않으면,
             <br />
-            입주장 때 예상보다{' '}
+            입주 때 예상보다{' '}
             <span className="text-red-400">몇억 원을 더 토해낼</span> 수 있습니다.
           </h2>
           <p className="text-zinc-400 text-base leading-relaxed max-w-2xl mx-auto">
-            분담금은 사업이 진행될수록 늘어납니다. 공사비 인상, 금리 상승, 분양률 저조—
-            조합이 짊어진 모든 리스크는 결국 조합원의 추가 분담금으로 전가됩니다.
-            지금 미리 시뮬레이션하지 않으면, 입주 직전에야 폭탄을 맞게 됩니다.
+            분담금은 사업이 진행될수록 늘어납니다. 공사비 인상, 금리 상승, 분양률 저조 등
+            <br />
+            모든 리스크는 결국 조합원의 추가 분담금으로 전가됩니다.
+            지금 미리 최악을 확인하지 않으면, 입주 전에 폭탄을 맞게 됩니다.
           </p>
         </div>
 
@@ -204,8 +205,7 @@ function SolutionSection() {
             3가지 시나리오 시각화
           </p>
           <h2 className="text-zinc-900 font-bold text-3xl sm:text-4xl leading-tight mb-4">
-            복잡한 차트 없이,
-            <br />
+            
             한눈에 보는 내 매물의 미래
           </h2>
           <p className="text-zinc-500 text-base max-w-xl mx-auto">
