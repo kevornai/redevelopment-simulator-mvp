@@ -65,7 +65,7 @@ export async function POST(req: Request) {
 
     const { data: zones, error } = await supabase
       .from("gyeonggi_zones")
-      .select("zone_id, imprv_zone_nm, sigun_nm, locplc_addr")
+      .select("zone_id, imprv_zone_nm, sigun_nm, locplc_addr, biz_step_nm")
       .or("lat.is.null,lng.is.null")
       .not("zone_id", "is", null)
       .not("biz_step_nm", "in", '("준공","이전고시")')
@@ -84,7 +84,7 @@ export async function POST(req: Request) {
       const fallback = [zone.sigun_nm, zone.imprv_zone_nm].filter(Boolean).join(" ");
       if (!fallback) {
         failed++;
-        failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "" });
+        failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "", step: zone.biz_step_nm ?? "" });
         continue;
       }
 
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
 
       if (!coords) {
         failed++;
-        failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "" });
+        failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "", step: zone.biz_step_nm ?? "" });
         continue;
       }
 
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
         .update({ lat: coords.lat, lng: coords.lng })
         .eq("zone_id", zone.zone_id);
 
-      if (upErr) { failed++; failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "" }); }
+      if (upErr) { failed++; failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "", step: zone.biz_step_nm ?? "" }); }
       else { success++; }
     }
 

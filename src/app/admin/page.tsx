@@ -37,7 +37,7 @@ export default function AdminPage() {
 
   const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [geocodeProgress, setGeocodeProgress] = useState<{ success: number; failed: number; remaining: number } | null>(null);
-  const [geocodeFailed, setGeocodeFailed] = useState<{ zone_id: string; name: string; sigun: string; addr: string }[]>([]);
+  const [geocodeFailed, setGeocodeFailed] = useState<{ zone_id: string; name: string; sigun: string; addr: string; step: string }[]>([]);
   const [geocodeFailedOpen, setGeocodeFailedOpen] = useState(false);
 
   async function handleGeocode() {
@@ -236,6 +236,7 @@ export default function AdminPage() {
                     <tr>
                       <th className="text-left px-3 py-2 text-zinc-500 font-semibold">시군</th>
                       <th className="text-left px-3 py-2 text-zinc-500 font-semibold">구역명</th>
+                      <th className="text-left px-3 py-2 text-zinc-500 font-semibold">단계</th>
                       <th className="text-left px-3 py-2 text-zinc-500 font-semibold">locplc_addr</th>
                     </tr>
                   </thead>
@@ -244,6 +245,7 @@ export default function AdminPage() {
                       <tr key={z.zone_id} className={i % 2 === 0 ? 'bg-white' : 'bg-zinc-50'}>
                         <td className="px-3 py-1.5 text-zinc-600 whitespace-nowrap">{z.sigun}</td>
                         <td className="px-3 py-1.5 text-zinc-800 whitespace-nowrap">{z.name}</td>
+                        <td className="px-3 py-1.5 text-zinc-500 whitespace-nowrap">{z.step || '—'}</td>
                         <td className="px-3 py-1.5 text-zinc-400">{z.addr || '—'}</td>
                       </tr>
                     ))}
