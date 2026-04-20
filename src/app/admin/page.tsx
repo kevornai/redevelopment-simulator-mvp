@@ -60,7 +60,10 @@ export default function AdminPage() {
         if (!res.ok) throw new Error(d.error ?? '오류');
         totalSuccess += d.success ?? 0;
         totalFailed += d.failed ?? 0;
-        if (d.failedZones?.length) allFailed = [...allFailed, ...d.failedZones];
+        if (d.failedZones?.length) {
+          const seen = new Set(allFailed.map((z: { zone_id: string }) => z.zone_id));
+          allFailed = [...allFailed, ...d.failedZones.filter((z: { zone_id: string }) => !seen.has(z.zone_id))];
+        }
         const remaining = d.remaining ?? 0;
         setGeocodeProgress({ success: totalSuccess, failed: totalFailed, remaining });
         setGeocodeFailed(allFailed);
