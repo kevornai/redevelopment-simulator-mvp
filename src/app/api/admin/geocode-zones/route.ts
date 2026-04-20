@@ -76,24 +76,34 @@ export async function POST(req: Request) {
 
     let success = 0;
     let failed = 0;
+    const failedZones: { zone_id: string; name: string; sigun: string; addr: string }[] = [];
 
     for (const zone of zones) {
       const primary  = zone.locplc_addr?.trim().replace(/(일원|일대|외)\s*$/, "").trim() || null;
       const fallback = [zone.sigun_nm, zone.imprv_zone_nm].filter(Boolean).join(" ");
-      if (!fallback) { failed++; continue; }
+      if (!fallback) {
+        failed++;
+        failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "" });
+        continue;
+      }
 
       const coords = await geocodeWithFallbacks(primary, fallback);
 
-      if (!coords) { failed++; continue; }
+      if (!coords) {
+        failed++;
+        failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "" });
+        continue;
+      }
 
-      await new Promise(r => setTimeout(r, 80)); // Kakao rate limit 방지
+      await new Promise(r => setTimeout(r, 80));
 
       const { error: upErr } = await supabase
         .from("gyeonggi_zones")
         .update({ lat: coords.lat, lng: coords.lng })
         .eq("zone_id", zone.zone_id);
 
-      if (upErr) { failed++; } else { success++; }
+      if (upErr) { failed++; failedZones.push({ zone_id: zone.zone_id!, name: zone.imprv_zone_nm ?? "", sigun: zone.sigun_nm ?? "", addr: zone.locplc_addr ?? "" }); }
+      else { success++; }
     }
 
     const { count } = await supabase
@@ -102,7 +112,7 @@ export async function POST(req: Request) {
       .or("lat.is.null,lng.is.null")
       .not("zone_id", "is", null);
 
-    return NextResponse.json({ done: (count ?? 0) === 0, success, failed, remaining: count ?? 0 });
+    return NextResponse.json({ done: (count ?? 0) === 0, success, failed, remaining: count ?? 0, failedZones });
   } catch (e) {
     return NextResponse.json({ error: `서버 오류: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
   }

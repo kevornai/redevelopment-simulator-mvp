@@ -37,28 +37,34 @@ export default function AdminPage() {
 
   const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [geocodeProgress, setGeocodeProgress] = useState<{ success: number; failed: number; remaining: number } | null>(null);
+  const [geocodeFailed, setGeocodeFailed] = useState<{ zone_id: string; name: string; sigun: string; addr: string }[]>([]);
+  const [geocodeFailedOpen, setGeocodeFailedOpen] = useState(false);
 
   async function handleGeocode() {
     setGeocodeStatus('running');
     setGeocodeProgress(null);
+    setGeocodeFailed([]);
+    setGeocodeFailedOpen(false);
     let totalSuccess = 0;
     let totalFailed = 0;
+    let allFailed: typeof geocodeFailed = [];
     let prevRemaining = -1;
     try {
       while (true) {
         const res = await fetch('/api/admin/geocode-zones', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: 20 }),
+          body: JSON.stringify({ limit: 10 }),
         });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error ?? '오류');
         totalSuccess += d.success ?? 0;
         totalFailed += d.failed ?? 0;
+        if (d.failedZones?.length) allFailed = [...allFailed, ...d.failedZones];
         const remaining = d.remaining ?? 0;
         setGeocodeProgress({ success: totalSuccess, failed: totalFailed, remaining });
+        setGeocodeFailed(allFailed);
         if (d.done || remaining === 0) break;
-        // 진전 없으면 중단 (전부 실패한 배치)
         if (remaining === prevRemaining && (d.success ?? 0) === 0) break;
         prevRemaining = remaining;
       }
@@ -206,14 +212,43 @@ export default function AdminPage() {
           >
             {geocodeStatus === 'running' ? `좌표 채우는 중... (남은 ${geocodeProgress?.remaining ?? '?'}건)` : '좌표 일괄 채우기'}
           </button>
-          {geocodeStatus === 'done' && geocodeProgress && (
-            <div className="mt-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
-              ✅ 완료 — 성공 {geocodeProgress.success}건 · 실패 {geocodeProgress.failed}건
+          {(geocodeStatus === 'done' || geocodeStatus === 'error') && geocodeProgress && (
+            <div className={`mt-3 rounded-xl px-4 py-3 text-sm ${geocodeStatus === 'done' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-600'}`}>
+              {geocodeStatus === 'done' ? '✅' : '❌'} 완료 — 성공 {geocodeProgress.success}건 · 실패 {geocodeProgress.failed}건 · 남은 {geocodeProgress.remaining}건
+              {(geocodeProgress.failed ?? 0) > 0 && (
+                <button
+                  onClick={() => setGeocodeFailedOpen(v => !v)}
+                  className="ml-3 underline text-xs"
+                >
+                  {geocodeFailedOpen ? '▲ 목록 접기' : `▼ 실패 목록 (${geocodeProgress.failed}건)`}
+                </button>
+              )}
             </div>
           )}
-          {geocodeStatus === 'error' && (
-            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
-              ❌ 오류 발생 (성공 {geocodeProgress?.success ?? 0}건 처리됨) — 브라우저 콘솔에서 상세 확인
+          {geocodeFailedOpen && (
+            <div className="mt-2 rounded-xl border border-zinc-200 overflow-auto max-h-80 text-xs">
+              {geocodeFailed.length > 0 ? (
+                <table className="w-full">
+                  <thead className="bg-zinc-50 sticky top-0">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-zinc-500 font-semibold">시군</th>
+                      <th className="text-left px-3 py-2 text-zinc-500 font-semibold">구역명</th>
+                      <th className="text-left px-3 py-2 text-zinc-500 font-semibold">locplc_addr</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {geocodeFailed.map((z, i) => (
+                      <tr key={z.zone_id} className={i % 2 === 0 ? 'bg-white' : 'bg-zinc-50'}>
+                        <td className="px-3 py-1.5 text-zinc-600 whitespace-nowrap">{z.sigun}</td>
+                        <td className="px-3 py-1.5 text-zinc-800 whitespace-nowrap">{z.name}</td>
+                        <td className="px-3 py-1.5 text-zinc-400">{z.addr || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="px-4 py-3 text-zinc-400">상세 실패 목록을 불러오지 못했습니다. (배포 버전 확인 필요)</p>
+              )}
             </div>
           )}
         </div>
