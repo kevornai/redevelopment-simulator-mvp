@@ -78,13 +78,15 @@ export async function POST(req: Request) {
     let failed = 0;
 
     for (const zone of zones) {
-      const primary  = zone.locplc_addr?.trim().replace(/\s*(일원|일대|외)\s*$/, "") || null;
+      const primary  = zone.locplc_addr?.trim().replace(/(일원|일대|외)\s*$/, "").trim() || null;
       const fallback = [zone.sigun_nm, zone.imprv_zone_nm].filter(Boolean).join(" ");
       if (!fallback) { failed++; continue; }
 
       const coords = await geocodeWithFallbacks(primary, fallback);
 
       if (!coords) { failed++; continue; }
+
+      await new Promise(r => setTimeout(r, 80)); // Kakao rate limit 방지
 
       const { error: upErr } = await supabase
         .from("gyeonggi_zones")
