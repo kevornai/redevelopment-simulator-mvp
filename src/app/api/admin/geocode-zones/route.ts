@@ -68,6 +68,7 @@ export async function POST(req: Request) {
       .select("zone_id, imprv_zone_nm, sigun_nm, locplc_addr")
       .or("lat.is.null,lng.is.null")
       .not("zone_id", "is", null)
+      .not("biz_step_nm", "in", '("준공","이전고시")')
       .limit(limit);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

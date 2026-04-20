@@ -27,6 +27,7 @@ export async function getAllZones(): Promise<ZoneBasic[]> {
     .from("gyeonggi_zones")
     .select("zone_id, imprv_zone_nm, biz_type_nm, sigun_nm, lat, lng, lawd_cd, strcontr_date, manage_disposit_confmtn_date, biz_implmtn_confmtn_date")
     .not("zone_id", "is", null)
+    .not("biz_step_nm", "in", '("준공","이전고시")')
     .order("sigun_nm");
   return (data ?? []).map((z) => ({
     zone_id:      z.zone_id!,
