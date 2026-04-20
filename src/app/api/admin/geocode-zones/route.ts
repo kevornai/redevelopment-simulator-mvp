@@ -31,29 +31,57 @@ async function searchKeyword(q: string): Promise<{ lat: number; lng: number } | 
   return doc ? { lat: parseFloat(doc.y), lng: parseFloat(doc.x) } : null;
 }
 
-async function geocodeWithFallbacks(primary: string | null, zoneName: string): Promise<{ lat: number; lng: number } | null> {
+/**
+ * 지오코딩 우선순위 (정확도 높은 순):
+ * 1. 괄호 안 아파트명 + 시군명  → "성일아파트 수원시"  (구체적, 고유)
+ * 2. 시군명 + 구역명(괄호 제거) → "수원시 권선 2구역"
+ * 3. 시군명 + 구역명(원본)      → "수원시 권선 2구역(성일아파트)"
+ * 4. locplc_addr 주소 검색      → API 데이터 오류 가능, 마지막 시도
+ * 5. locplc_addr + "번지"       → 번지 형식 보정
+ */
+async function geocodeWithFallbacks(
+  primary: string | null,
+  zoneName: string,  // "sigun_nm imprv_zone_nm" 조합
+): Promise<{ lat: number; lng: number } | null> {
   if (!KAKAO_REST_KEY) return null;
   try {
-    // 1. 주소 검색 (locplc_addr)
-    if (primary) {
-      const r = await searchAddress(primary);
+    // zoneName = "수원시 권선 2구역(성일아파트)" 형태
+    const parenMatch = zoneName.match(/\(([^)]+)\)/);
+    const aptName    = parenMatch?.[1] ?? null;            // "성일아파트"
+    const cleanName  = zoneName.replace(/\([^)]*\)/g, "").trim(); // "수원시 권선 2구역"
+
+    // 1. 괄호 안 아파트명 + 시군명 (가장 고유한 식별자)
+    if (aptName) {
+      const sigunPart = zoneName.split(/\s/)[0]; // "수원시"
+      const r = await searchKeyword(`${aptName} ${sigunPart}`);
       if (r) return r;
-      // 숫자로 끝나는 주소 → "번지" 붙여서 재시도
-      const withBunji = primary.replace(/(\d+)\s*$/, "$1번지");
-      if (withBunji !== primary) {
-        const r2 = await searchAddress(withBunji);
-        if (r2) return r2;
-      }
+      // 아파트명만으로도 시도
+      const r2 = await searchKeyword(aptName);
+      if (r2) return r2;
     }
-    // 2. 구역명 키워드 검색 (괄호 제거)
-    const cleanName = zoneName.replace(/\([^)]*\)/g, "").trim();
+
+    // 2. 시군명 + 구역명(괄호 제거) 키워드
     const r3 = await searchKeyword(cleanName);
     if (r3) return r3;
-    // 3. 원본 구역명 그대로
+
+    // 3. 원본 구역명 그대로 (괄호 포함)
     if (cleanName !== zoneName) {
       const r4 = await searchKeyword(zoneName);
       if (r4) return r4;
     }
+
+    // 4. locplc_addr 주소 검색 (API 오류 가능성 있지만 마지막 시도)
+    if (primary) {
+      const r5 = await searchAddress(primary);
+      if (r5) return r5;
+      // 번지 형식 보정
+      const withBunji = primary.replace(/(\d+)\s*$/, "$1번지");
+      if (withBunji !== primary) {
+        const r6 = await searchAddress(withBunji);
+        if (r6) return r6;
+      }
+    }
+
     return null;
   } catch { return null; }
 }
