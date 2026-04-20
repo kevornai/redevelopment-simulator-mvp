@@ -77,7 +77,7 @@ export async function POST(req: Request) {
 
     let success = 0;
     let failed = 0;
-    const failedZones: { zone_id: string; name: string; sigun: string; addr: string }[] = [];
+    const failedZones: { zone_id: string; name: string; sigun: string; addr: string; step: string }[] = [];
 
     for (const zone of zones) {
       const primary  = zone.locplc_addr?.trim().replace(/(일원|일대|외)\s*$/, "").trim() || null;
