@@ -10,27 +10,49 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 const KAKAO_REST_KEY = process.env.KAKAO_REST_API_KEY ?? "";
 
-async function geocode(query: string): Promise<{ lat: number; lng: number } | null> {
-  if (!KAKAO_REST_KEY || !query) return null;
+async function searchAddress(q: string): Promise<{ lat: number; lng: number } | null> {
+  const res = await fetch(
+    `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(q)}`,
+    { headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` }, signal: AbortSignal.timeout(4000) }
+  );
+  const json = await res.json();
+  const doc = json.documents?.[0];
+  return doc ? { lat: parseFloat(doc.y), lng: parseFloat(doc.x) } : null;
+}
+
+async function searchKeyword(q: string): Promise<{ lat: number; lng: number } | null> {
+  const res = await fetch(
+    `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(q)}&size=1`,
+    { headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` }, signal: AbortSignal.timeout(4000) }
+  );
+  const json = await res.json();
+  const doc = json.documents?.[0];
+  return doc ? { lat: parseFloat(doc.y), lng: parseFloat(doc.x) } : null;
+}
+
+async function geocodeWithFallbacks(primary: string | null, zoneName: string): Promise<{ lat: number; lng: number } | null> {
+  if (!KAKAO_REST_KEY) return null;
   try {
-    // 1차: 주소 검색
-    const res = await fetch(
-      `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(query)}`,
-      { headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` }, signal: AbortSignal.timeout(4000) }
-    );
-    const json = await res.json();
-    const doc = json.documents?.[0];
-    if (doc) return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
-
-    // 2차: 키워드 검색 (주소 검색 실패 시)
-    const res2 = await fetch(
-      `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=1`,
-      { headers: { Authorization: `KakaoAK ${KAKAO_REST_KEY}` }, signal: AbortSignal.timeout(4000) }
-    );
-    const json2 = await res2.json();
-    const doc2 = json2.documents?.[0];
-    if (doc2) return { lat: parseFloat(doc2.y), lng: parseFloat(doc2.x) };
-
+    // 1. 주소 검색 (locplc_addr)
+    if (primary) {
+      const r = await searchAddress(primary);
+      if (r) return r;
+      // 숫자로 끝나는 주소 → "번지" 붙여서 재시도
+      const withBunji = primary.replace(/(\d+)\s*$/, "$1번지");
+      if (withBunji !== primary) {
+        const r2 = await searchAddress(withBunji);
+        if (r2) return r2;
+      }
+    }
+    // 2. 구역명 키워드 검색 (괄호 제거)
+    const cleanName = zoneName.replace(/\([^)]*\)/g, "").trim();
+    const r3 = await searchKeyword(cleanName);
+    if (r3) return r3;
+    // 3. 원본 구역명 그대로
+    if (cleanName !== zoneName) {
+      const r4 = await searchKeyword(zoneName);
+      if (r4) return r4;
+    }
     return null;
   } catch { return null; }
 }
@@ -63,27 +85,9 @@ export async function POST(req: Request) {
 
     if (!query) { failed++; continue; }
 
-    const coords = await geocode(query);
+    const coords = await geocodeWithFallbacks(primary, fallback);
 
-    if (!coords && primary) {
-      // 주소로 실패 시 구역명으로 재시도
-      const coords2 = await geocode(fallback);
-      if (coords2) {
-        const { error: upErr } = await supabase
-          .from("gyeonggi_zones")
-          .update({ lat: coords2.lat, lng: coords2.lng })
-          .eq("zone_id", zone.zone_id);
-        if (upErr) { failed++; } else { success++; }
-        continue;
-      }
-    }
-
-    if (!coords) {
-      // 찾지 못해도 null 대신 시군 중심 좌표라도 넣어 루프 무한반복 방지
-      // zone_id NULL이 아닌 것에만 0,0 marker 삽입 (나중에 수동 수정 가능)
-      failed++;
-      continue;
-    }
+    if (!coords) { failed++; continue; }
 
     const { error: upErr } = await supabase
       .from("gyeonggi_zones")
