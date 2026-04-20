@@ -35,6 +35,35 @@ export default function AdminPage() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'fetching' | 'saving' | 'done' | 'error'>('idle');
   const [syncResult, setSyncResult] = useState<{ saved?: number; updated?: number; inserted?: number; error?: string } | null>(null);
 
+  const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [geocodeProgress, setGeocodeProgress] = useState<{ success: number; failed: number; remaining: number } | null>(null);
+
+  async function handleGeocode() {
+    setGeocodeStatus('running');
+    setGeocodeProgress(null);
+    let totalSuccess = 0;
+    let totalFailed = 0;
+    try {
+      while (true) {
+        const res = await fetch('/api/admin/geocode-zones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: 30 }),
+        });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error ?? '오류');
+        totalSuccess += d.success ?? 0;
+        totalFailed += d.failed ?? 0;
+        setGeocodeProgress({ success: totalSuccess, failed: totalFailed, remaining: d.remaining ?? 0 });
+        if (d.done || d.remaining === 0) break;
+      }
+      setGeocodeStatus('done');
+    } catch (e) {
+      setGeocodeStatus('error');
+      setGeocodeProgress(prev => ({ success: prev?.success ?? 0, failed: prev?.failed ?? 0, remaining: -1 }));
+    }
+  }
+
   async function handleGyeonggiSync() {
     setSyncStatus('fetching');
     setSyncResult(null);
@@ -154,6 +183,32 @@ export default function AdminPage() {
           {syncStatus === 'error' && (
             <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
               ❌ {syncResult?.error}
+            </div>
+          )}
+        </div>
+
+        {/* 좌표 일괄 채우기 */}
+        <div className="bg-white border border-zinc-200 rounded-2xl shadow-sm p-6">
+          <h2 className="text-zinc-900 font-bold text-lg mb-1">구역 좌표 자동 채우기</h2>
+          <p className="text-zinc-400 text-sm mb-4">
+            lat/lng 없는 구역을 카카오 API로 일괄 지오코딩합니다.<br/>
+            경기도 동기화 후 한 번 실행하세요.
+          </p>
+          <button
+            onClick={handleGeocode}
+            disabled={geocodeStatus === 'running'}
+            className="h-11 px-6 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white font-bold rounded-xl text-sm transition-colors"
+          >
+            {geocodeStatus === 'running' ? `좌표 채우는 중... (남은 ${geocodeProgress?.remaining ?? '?'}건)` : '좌표 일괄 채우기'}
+          </button>
+          {geocodeStatus === 'done' && geocodeProgress && (
+            <div className="mt-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700">
+              ✅ 완료 — 성공 {geocodeProgress.success}건 · 실패 {geocodeProgress.failed}건
+            </div>
+          )}
+          {geocodeStatus === 'error' && (
+            <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
+              ❌ 오류 발생 (성공 {geocodeProgress?.success ?? 0}건 처리됨)
             </div>
           )}
         </div>

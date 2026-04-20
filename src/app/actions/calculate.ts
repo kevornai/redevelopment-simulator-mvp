@@ -784,7 +784,7 @@ function mapGyeonggiZone(z: Record<string, any>): ZoneData {
     project_stage,
     zone_name:     z.imprv_zone_nm ?? null,
     sigungu:       z.sigun_nm ?? null,
-    lawd_cd:       z.lawd_cd ?? null,
+    lawd_cd:       z.lawd_cd ?? z.sigun_cd ?? null,
     bjd_code:      null,
     lat:           parseNum(z.lat),
     lng:           parseNum(z.lng),
