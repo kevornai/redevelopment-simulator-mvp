@@ -18,7 +18,7 @@ export async function GET() {
     .not("lat", "is", null)
     .not("lng", "is", null)
     .not("zone_id", "is", null)
-    .not("biz_step_nm", "in", '("준공","이전고시")')
+    .not("biz_step_nm", "in", '("준공","이전고시","청산")')
     .order("zone_id");
 
   if (error) {
