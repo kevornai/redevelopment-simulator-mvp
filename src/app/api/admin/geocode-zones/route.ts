@@ -56,7 +56,8 @@ export async function POST(req: Request) {
 
   for (const zone of zones) {
     // locplc_addr 우선, 없으면 "시군명 구역명"
-    const primary   = zone.locplc_addr?.trim() || null;
+    // "일원", "일대" 등 비주소 suffix 제거
+    const primary   = zone.locplc_addr?.trim().replace(/\s*(일원|일대|외)\s*$/, "") || null;
     const fallback  = [zone.sigun_nm, zone.imprv_zone_nm].filter(Boolean).join(" ");
     const query     = primary || fallback;
 
