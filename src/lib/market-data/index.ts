@@ -99,14 +99,19 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
   const molitKey = process.env.MOLIT_API_KEY  ?? '';
   const nsdiKey  = process.env.NSDI_API_KEY   ?? '';
 
-  // bjdCode 앞 5자리가 lawdCd보다 정확 (Kakao 지오코딩 결과)
-  const effectiveLawdCd = (bjdCode?.slice(0, 5)) || lawdCd || null;
-
   // 금리(ECOS) + 공사비(DB캐시) 병렬 조회
   const [rates, constructionCost] = await Promise.all([
     ecosKey ? fetchRatesWithCache(ecosKey) : Promise.resolve(RATE_FALLBACK),
     fetchConstructionCostFromCache(),
   ]);
+
+  // 역지오코딩 선행 — MOLIT 호출 전에 구 레벨 lawdCd 확보
+  // DB의 lawd_cd는 시 레벨(e.g. 41110 수원시)일 수 있어 좌표 기반이 더 정확
+  const kakaoKey = process.env.KAKAO_REST_API_KEY ?? '';
+  const geo = (kakaoKey && lat && lng) ? await reverseGeocode(lat, lng, kakaoKey) : null;
+
+  // effectiveLawdCd 우선순위: 역지오코딩 구 레벨 → bjdCode 앞 5자리 → DB lawdCd
+  const effectiveLawdCd = geo?.sigunguCd || (bjdCode?.slice(0, 5)) || lawdCd || null;
 
   // MOLIT 3회 병렬 조회:
   //   ① 구역 자체 물건 (구축 단지명 필터) — 재개발 구역은 대부분 null
@@ -127,10 +132,6 @@ export async function fetchMarketData(opts: FetchMarketDataOptions = {}): Promis
     if (nearbyResult.data) nearbyNewAptPrice = nearbyResult.data;
     if (oldResult.data) oldAptPrice = oldResult.data;
   }
-
-  // 역지오코딩 선행 (공시가격 PNU + 건축물대장 공용)
-  const kakaoKey = process.env.KAKAO_REST_API_KEY ?? '';
-  const geo = (kakaoKey && lat && lng) ? await reverseGeocode(lat, lng, kakaoKey) : null;
 
   // 공시가격 + 건축물대장 병렬 조회
   let publicPrice = null;

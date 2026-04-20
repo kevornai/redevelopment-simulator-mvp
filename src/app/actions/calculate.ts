@@ -785,7 +785,7 @@ function mapGyeonggiZone(z: Record<string, any>): ZoneData {
     zone_name:     z.imprv_zone_nm ?? null,
     sigungu:       z.sigun_nm ?? null,
     lawd_cd:       z.lawd_cd ?? z.sigun_cd ?? null,
-    bjd_code:      null,
+    bjd_code:      z.bjd_code ?? null,
     lat:           parseNum(z.lat),
     lng:           parseNum(z.lng),
     api_raw_name:  z.imprv_zone_nm ?? null,
@@ -794,7 +794,11 @@ function mapGyeonggiZone(z: Record<string, any>): ZoneData {
     existing_units_total:    z.existing_hshld_cnt ?? null,
     planned_units_total:     z.implmtn_hshld_total ?? null,
     planned_units_member:    z.member_lotout_hshld_cnt ?? null,
-    planned_units_general:   z.general_lotout_hshld_cnt ?? null,
+    // 일반분양세대수: API값 → new_lotout_total - member 파생
+    planned_units_general:   z.general_lotout_hshld_cnt ??
+      (z.new_lotout_total != null && z.member_lotout_hshld_cnt != null
+        ? Math.max(0, z.new_lotout_total - z.member_lotout_hshld_cnt)
+        : null),
     floor_area_ratio_new:    parseNum(z.new_far),
     floor_area_ratio_existing: parseNum(z.existing_far),
     new_units_sale_u40:      z.new_lotout_u40 ?? null,
