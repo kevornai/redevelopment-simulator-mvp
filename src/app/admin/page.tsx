@@ -43,19 +43,24 @@ export default function AdminPage() {
     setGeocodeProgress(null);
     let totalSuccess = 0;
     let totalFailed = 0;
+    let prevRemaining = -1;
     try {
       while (true) {
         const res = await fetch('/api/admin/geocode-zones', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: 30 }),
+          body: JSON.stringify({ limit: 20 }),
         });
         const d = await res.json();
         if (!res.ok) throw new Error(d.error ?? '오류');
         totalSuccess += d.success ?? 0;
         totalFailed += d.failed ?? 0;
-        setGeocodeProgress({ success: totalSuccess, failed: totalFailed, remaining: d.remaining ?? 0 });
-        if (d.done || d.remaining === 0) break;
+        const remaining = d.remaining ?? 0;
+        setGeocodeProgress({ success: totalSuccess, failed: totalFailed, remaining });
+        if (d.done || remaining === 0) break;
+        // 진전 없으면 중단 (전부 실패한 배치)
+        if (remaining === prevRemaining && (d.success ?? 0) === 0) break;
+        prevRemaining = remaining;
       }
       setGeocodeStatus('done');
     } catch (e) {
