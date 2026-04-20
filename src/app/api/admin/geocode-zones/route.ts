@@ -71,6 +71,7 @@ export async function POST(req: Request) {
       .limit(limit);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!KAKAO_REST_KEY) return NextResponse.json({ error: "KAKAO_REST_API_KEY 환경변수가 없습니다. Vercel 설정을 확인하세요." }, { status: 500 });
     if (!zones?.length) return NextResponse.json({ done: true, success: 0, failed: 0, remaining: 0 });
 
     let success = 0;
