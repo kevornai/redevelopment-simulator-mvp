@@ -293,13 +293,19 @@ interface ZoneData {
   incentive_far_bonus: number | null;
   member_avg_pyung: number | null;
   efficiency_ratio: number | null;
-  // 신축 분양 세대수 — 평형별 (엑셀 c[20]~c[24])
+  // 신축 분양 세대수 — 평형별
   new_units_sale_u40: number | null;
   new_units_sale_40_60: number | null;
   new_units_sale_60_85: number | null;
   new_units_sale_85_135: number | null;
   new_units_sale_o135: number | null;
   new_units_sale_total: number | null;
+  // 기존(재건축 전) 세대수 — 평형별
+  existing_units_u40: number | null;
+  existing_units_40_60: number | null;
+  existing_units_60_85: number | null;
+  existing_units_85_135: number | null;
+  existing_units_o135: number | null;
   // 단계별 진행 날짜 (경과 개월 계산용)
   zone_designation_date: string | null;
   association_approval_date: string | null;
@@ -690,31 +696,50 @@ function resolveZoneParams(
   let general_sale_area = z.general_sale_area;
   let saleAreaSource: "calculated" | "db" | "missing" = "db";
 
-  const hasSizeDist =
+  const hasNewDist =
     (z.new_units_sale_u40 != null || z.new_units_sale_40_60 != null ||
      z.new_units_sale_60_85 != null || z.new_units_sale_85_135 != null || z.new_units_sale_o135 != null);
+  const hasExistDist =
+    (z.existing_units_u40 != null || z.existing_units_40_60 != null ||
+     z.existing_units_60_85 != null || z.existing_units_85_135 != null || z.existing_units_o135 != null);
 
-  if (hasSizeDist && z.planned_units_member && z.planned_units_general != null) {
+  if (hasNewDist && hasExistDist) {
     // 공급면적 대표값 (전용→공급 변환)
-    // 구간   전용중간값  공급면적
-    // u40    39㎡     → 53㎡
-    // 40_60  59㎡     → 80㎡
-    // 60_85  (74+84)/2=79㎡ → 104㎡
-    // 85_135 114㎡    → 149㎡
-    // o135   150㎡    → 196㎡
+    // u40    39㎡  → 53㎡
+    // 40_60  59㎡  → 80㎡
+    // 60_85  평균  → 102.5㎡ (74㎡형 95㎡, 84㎡형 110㎡ 평균)
+    // 85_135 114㎡ → 147.5㎡
+    // o135   150㎡ → 196㎡
+    const SUPPLY = { u40: 53, c40_60: 80, c60_85: 102.5, c85_135: 147.5, o135: 196 };
+    member_sale_area =
+      (z.existing_units_u40    ?? 0) * SUPPLY.u40    +
+      (z.existing_units_40_60  ?? 0) * SUPPLY.c40_60 +
+      (z.existing_units_60_85  ?? 0) * SUPPLY.c60_85 +
+      (z.existing_units_85_135 ?? 0) * SUPPLY.c85_135 +
+      (z.existing_units_o135   ?? 0) * SUPPLY.o135;
+    general_sale_area =
+      Math.max(0, (z.new_units_sale_u40    ?? 0) - (z.existing_units_u40    ?? 0)) * SUPPLY.u40    +
+      Math.max(0, (z.new_units_sale_40_60  ?? 0) - (z.existing_units_40_60  ?? 0)) * SUPPLY.c40_60 +
+      Math.max(0, (z.new_units_sale_60_85  ?? 0) - (z.existing_units_60_85  ?? 0)) * SUPPLY.c60_85 +
+      Math.max(0, (z.new_units_sale_85_135 ?? 0) - (z.existing_units_85_135 ?? 0)) * SUPPLY.c85_135 +
+      Math.max(0, (z.new_units_sale_o135   ?? 0) - (z.existing_units_o135   ?? 0)) * SUPPLY.o135;
+    saleAreaSource = "calculated";
+  } else if (hasNewDist && z.planned_units_member && z.planned_units_general != null) {
+    // 기존 평형별 데이터 없을 때: 신규 전체 면적을 세대수 비율로 배분 (이전 방식)
+    const SUPPLY = { u40: 53, c40_60: 80, c60_85: 102.5, c85_135: 147.5, o135: 196 };
     const totalSaleArea =
-      (z.new_units_sale_u40     ?? 0) * 53    +
-      (z.new_units_sale_40_60   ?? 0) * 80    +
-      (z.new_units_sale_60_85   ?? 0) * 104   +
-      (z.new_units_sale_85_135  ?? 0) * 149   +
-      (z.new_units_sale_o135    ?? 0) * 196;
+      (z.new_units_sale_u40     ?? 0) * SUPPLY.u40    +
+      (z.new_units_sale_40_60   ?? 0) * SUPPLY.c40_60 +
+      (z.new_units_sale_60_85   ?? 0) * SUPPLY.c60_85 +
+      (z.new_units_sale_85_135  ?? 0) * SUPPLY.c85_135 +
+      (z.new_units_sale_o135    ?? 0) * SUPPLY.o135;
     const totalUnits = z.planned_units_member + z.planned_units_general;
     const memberRatio = totalUnits > 0 ? z.planned_units_member / totalUnits : 1;
     member_sale_area  = totalSaleArea * memberRatio;
     general_sale_area = totalSaleArea * (1 - memberRatio);
     saleAreaSource = "calculated";
   } else {
-    if (!hasSizeDist) missingSaleAreaFields.push('평형별세대수(new_units_sale_*)');
+    if (!hasNewDist) missingSaleAreaFields.push('평형별세대수(new_units_sale_*)');
     if (!z.planned_units_member) missingSaleAreaFields.push('조합원세대수(planned_units_member)');
     if (z.planned_units_general == null) missingSaleAreaFields.push('일반분양세대수(planned_units_general)');
     saleAreaSource = "missing";
@@ -807,6 +832,12 @@ function mapGyeonggiZone(z: Record<string, any>): ZoneData {
     new_units_sale_85_135:   z.new_lotout_85_135 ?? null,
     new_units_sale_o135:     z.new_lotout_o135 ?? null,
     new_units_sale_total:    z.new_lotout_total ?? null,
+    // 기존 평형별 세대수
+    existing_units_u40:      z.existing_hshld_u40 ?? null,
+    existing_units_40_60:    z.existing_hshld_40_60 ?? null,
+    existing_units_60_85:    z.existing_hshld_60_85 ?? null,
+    existing_units_85_135:   z.existing_hshld_85_135 ?? null,
+    existing_units_o135:     z.existing_hshld_o135 ?? null,
     // API 날짜
     zone_designation_date:       z.zone_appont_first_date ?? null,
     association_approval_date:   z.assoctn_found_confmtn_date ?? null,
