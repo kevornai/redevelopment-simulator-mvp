@@ -31,91 +31,34 @@ async function searchKeyword(q: string): Promise<{ lat: number; lng: number } | 
   return doc ? { lat: parseFloat(doc.y), lng: parseFloat(doc.x) } : null;
 }
 
-/** locplc_addr에서 동/읍/면/리까지 추출 → "경기도 부천시 송내동 427-32" → "부천시 송내동" */
-function extractDong(addr: string | null): string | null {
-  if (!addr) return null;
-  const parts = addr.trim().split(/\s+/);
-  // 시/군/구 다음의 동/읍/면/리 찾기
-  const dongIdx = parts.findIndex(p => /[동읍면리가]$/.test(p));
-  if (dongIdx < 1) return null;
-  // 시군구 + 동 조합
-  const sigunIdx = parts.findIndex(p => /[시군구]$/.test(p));
-  if (sigunIdx < 0) return null;
-  return parts.slice(sigunIdx, dongIdx + 1).join(" ");
-}
-
 /**
- * 지오코딩 우선순위 (정확도 높은 순):
- * 1. 괄호 안 아파트/단지명 + 시군명
- * 2. 아파트명만 (시군명 없이)
- * 3. 시군명 + 구역명(괄호 제거)
- * 4. 동명(locplc_addr) + 구역명
- * 5. 시군명 + 구역명 + "재개발"
- * 6. 시군명 + 구역명 + "재건축"
- * 7. 원본 구역명(괄호 포함)
- * 8. locplc_addr 주소 검색 (API 오류 가능성 있지만 마지막 시도)
- * 9. locplc_addr + "번지"
+ * 지오코딩 우선순위:
+ * 1. locplc_addr 주소 검색
+ * 2. locplc_addr + "번지" 주소 검색
+ * 3. 원본 구역명(시군명+구역명, 괄호 포함) 키워드 검색
  */
 async function geocodeWithFallbacks(
   primary: string | null,
-  zoneName: string,  // "sigun_nm imprv_zone_nm" 조합 e.g. "수원시 권선 2구역(성일아파트)"
+  zoneName: string,  // "sigun_nm imprv_zone_nm" 조합
 ): Promise<{ lat: number; lng: number } | null> {
   if (!KAKAO_REST_KEY) return null;
   try {
-    const parenMatch = zoneName.match(/\(([^)]+)\)/);
-    const aptName    = parenMatch?.[1] ?? null;             // "성일아파트"
-    const cleanName  = zoneName.replace(/\([^)]*\)/g, "").trim(); // "수원시 권선 2구역"
-    const sigunPart  = zoneName.split(/\s/)[0];             // "수원시"
-    const dong       = extractDong(primary);                // "부천시 송내동"
-
-    // 1. 괄호 안 명칭 + 시군명 (가장 고유)
-    if (aptName) {
-      const r = await searchKeyword(`${aptName} ${sigunPart}`);
-      if (r) return r;
-    }
-
-    // 2. 아파트명만
-    if (aptName) {
-      const r = await searchKeyword(aptName);
-      if (r) return r;
-    }
-
-    // 3. 시군명 + 구역명(괄호 제거)
-    const r3 = await searchKeyword(cleanName);
-    if (r3) return r3;
-
-    // 4. 동명 + 구역명(이름 부분만)
-    if (dong) {
-      const zoneOnly = cleanName.replace(sigunPart, "").trim();
-      const r4 = await searchKeyword(`${dong} ${zoneOnly}`);
-      if (r4) return r4;
-    }
-
-    // 5. 구역명 + "재개발"
-    const r5 = await searchKeyword(`${cleanName} 재개발`);
-    if (r5) return r5;
-
-    // 6. 구역명 + "재건축"
-    const r6 = await searchKeyword(`${cleanName} 재건축`);
-    if (r6) return r6;
-
-    // 7. 원본 구역명(괄호 포함)
-    if (cleanName !== zoneName) {
-      const r7 = await searchKeyword(zoneName);
-      if (r7) return r7;
-    }
-
-    // 8. locplc_addr 주소 검색
+    // 1. locplc_addr 주소 검색
     if (primary) {
-      const r8 = await searchAddress(primary);
-      if (r8) return r8;
-      // 9. 번지 형식 보정
+      const r = await searchAddress(primary);
+      if (r) return r;
+
+      // 2. locplc_addr + "번지"
       const withBunji = primary.replace(/(\d+)\s*$/, "$1번지");
       if (withBunji !== primary) {
-        const r9 = await searchAddress(withBunji);
-        if (r9) return r9;
+        const r2 = await searchAddress(withBunji);
+        if (r2) return r2;
       }
     }
+
+    // 3. 원본 구역명 키워드 검색
+    const r3 = await searchKeyword(zoneName);
+    if (r3) return r3;
 
     return null;
   } catch { return null; }
