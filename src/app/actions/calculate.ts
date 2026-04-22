@@ -33,6 +33,8 @@ export interface CalculationInput {
     generalSalePricePerPyung?: number;  // 예상 일반분양가 (원/평)
     // 대지지분 기반 감정평가 (등기부등본+토지대장)
     landOfficialPricePerSqm?: number;   // 개별공시지가 (원/㎡) — 토지대장
+    // 공사비
+    constructionCostPerPyung?: number;  // 평당 공사비 (원/평) — 도급계약서/관리처분계획서
     // 사업 일정
     constructionStartYm?: string;       // 착공예정월 (YYYYMM) — 조합 공문
   };
@@ -230,6 +232,9 @@ export interface CalculationResult {
     stageElapsedMonths: number | null;
     stageStartDate: string | null;
     gyeonggiApiMatchedZone: string | null;  // 경기도 API 매칭된 구역명 (null=미매칭)
+    estimatedConstructionTier: string;
+    estimatedCostApplied: boolean;
+    current_construction_cost: number;
   };
   /** 비정상 값 감지 시 경고 메시지 (결과는 유지) */
   warnings: string[];
@@ -535,6 +540,70 @@ function estimateParamsForStage(
   return { overrides, priorAsset };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// 급지별 평당 공사비 추정 (bjd_code + KOSIS 지수 보정)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * KOSIS 건설공사비지수 기준연도 (2024년 평균, 2020=100 기준)
+ * 급지 기준 단가는 이 시점 물가 기준으로 산정되었음
+ */
+const KOSIS_BASE_INDEX_2024 = 128.0;
+
+type ConstructionTier = "tier1_하이엔드" | "tier2_서울일반" | "tier3_수도권" | "tier4_지방";
+
+/**
+ * bjd_code(10자리) 기반 급지 분류 및 KOSIS 지수 보정 평당 공사비 추정
+ * @param bjdCode  법정동코드 10자리 (없으면 null)
+ * @param currentKosisIndex  KOSIS 건설공사비지수 최신값 (없으면 기준연도값 사용)
+ * @returns { costPerPyung, tier }
+ */
+function estimateConstructionCostByRegion(
+  bjdCode: string | null,
+  currentKosisIndex: number,
+): { costPerPyung: number; tier: ConstructionTier } {
+  // 급지별 기준 단가 (2024년 물가 기준, 원/평)
+  const TIER_BASE: Record<ConstructionTier, number> = {
+    tier1_하이엔드:  10_000_000,
+    tier2_서울일반:   8_500_000,
+    tier3_수도권:     7_500_000,
+    tier4_지방:       7_000_000,
+  };
+
+  let tier: ConstructionTier = "tier4_지방";
+
+  if (bjdCode) {
+    const prefix5 = bjdCode.slice(0, 5);
+
+    // 1급지: 강남구(11680), 서초구(11650), 송파구(11710), 용산구(11170)
+    const TIER1 = ["11680", "11650", "11710", "11170"];
+    // 2급지: 서울 나머지(11), 과천(41290), 성남 분당구(41135), 하남(41450), 광명(41210)
+    const TIER2_EXTRA = ["41290", "41135", "41450", "41210"];
+
+    if (TIER1.includes(prefix5)) {
+      tier = "tier1_하이엔드";
+    } else if (bjdCode.startsWith("11") || TIER2_EXTRA.includes(prefix5)) {
+      tier = "tier2_서울일반";
+    } else if (
+      bjdCode.startsWith("41") ||   // 경기 나머지
+      bjdCode.startsWith("28") ||   // 인천
+      bjdCode.startsWith("26") ||   // 부산
+      bjdCode.startsWith("27") ||   // 대구
+      bjdCode.startsWith("29") ||   // 광주
+      bjdCode.startsWith("30") ||   // 대전
+      bjdCode.startsWith("31")      // 울산
+    ) {
+      tier = "tier3_수도권";
+    }
+  }
+
+  // KOSIS 지수로 현재 시점 물가 보정
+  const indexRatio = currentKosisIndex > 0 ? currentKosisIndex / KOSIS_BASE_INDEX_2024 : 1;
+  const costPerPyung = Math.round(TIER_BASE[tier] * indexRatio / 10000) * 10000; // 1만원 단위 반올림
+
+  return { costPerPyung, tier };
+}
+
 /**
  * API 데이터로 Zone 상수를 오버라이드한 유효 파라미터 세트
  * DB 값이 fallback, 실시간 API 값이 우선
@@ -563,6 +632,17 @@ function resolveZoneParams(
   const r_long = market.constructionCost.fromApi
     ? market.constructionCost.rLong
     : z.r_long;
+
+  // 평당 공사비 C₀: 급지 추정값 (KOSIS 지수 보정) — DB 기본값(9,500,000)보다 정밀
+  // 우선순위: 관리자 수동입력 > 급지 추정 (항상 고정 fallback보다 나음)
+  const kosisIndex = market.constructionCost.currentIndex > 0
+    ? market.constructionCost.currentIndex
+    : KOSIS_BASE_INDEX_2024;
+  const { costPerPyung: estimatedCostPerPyung, tier: estimatedTier } =
+    estimateConstructionCostByRegion(z.bjd_code, kosisIndex);
+  // DB값이 placeholder(9,500,000)인 경우 → 급지 추정값으로 교체
+  // admin 수동 입력은 Step 6에서 덮어씀
+  const current_construction_cost = estimatedCostPerPyung;
 
   // 시세 데이터 우선순위:
   //   1. nearbyNewAptPrice (인근 신축 5년 이내, complexName 없이 법정동 전체 조회) ← 가장 신뢰
@@ -768,6 +848,7 @@ function resolveZoneParams(
     months_p75: months_p75_adjusted,
     _derivedSiteAreaSqm,
     _existingFAR,
+    current_construction_cost,
     _priorAssetMethodUsed: "",  // calculateAnalysis에서 priorAssetBreakdown 후 override
     _derivedSources: {
       monthsToConstruction: months_to_construction_source,
@@ -777,6 +858,8 @@ function resolveZoneParams(
       stageElapsedMonths,
       stageStartDate: stageStartDateRaw ?? null,
       monthsToConstructionRaw,
+      estimatedConstructionTier: estimatedTier,
+      estimatedCostApplied: true,  // 항상 급지 추정값 적용 (관리자 입력은 Step 6에서 덮어씀)
     },
   };
 }
@@ -952,6 +1035,7 @@ export async function calculateAnalysis(
     ...(adm.neighborNewAptPrice      ? { neighbor_new_apt_price:          adm.neighborNewAptPrice }    : {}),
     ...(adm.generalSalePricePerPyung ? { p_base:                         adm.generalSalePricePerPyung } : {}),
     ...(adm.landOfficialPricePerSqm  ? { land_official_price_per_sqm:    adm.landOfficialPricePerSqm } : {}),
+    ...(adm.constructionCostPerPyung  ? { current_construction_cost:       adm.constructionCostPerPyung } : {}),
     ...(adm.constructionStartYm      ? { construction_start_announced_ym: adm.constructionStartYm }   : {}),
   };
 
@@ -1030,6 +1114,9 @@ export async function calculateAnalysis(
         stageElapsedMonths: resolvedZ._derivedSources.stageElapsedMonths,
         stageStartDate: resolvedZ._derivedSources.stageStartDate,
         gyeonggiApiMatchedZone,
+        estimatedConstructionTier: resolvedZ._derivedSources.estimatedConstructionTier,
+        estimatedCostApplied: resolvedZ._derivedSources.estimatedCostApplied,
+        current_construction_cost: resolvedZ.current_construction_cost,
       },
       warnings,
       calculatedAt: new Date().toISOString(),
@@ -1051,6 +1138,8 @@ type ResolvedZoneData = ZoneData & {
     stageElapsedMonths: number | null;
     stageStartDate: string | null;
     monthsToConstructionRaw: number;  // 경과분 차감 전 원본값
+    estimatedConstructionTier: ConstructionTier;
+    estimatedCostApplied: boolean;
   };
   /** 볼린저 밴드용 OLS 추세 (원/평/월). 0이면 데이터 없음 */
   trendSlopePerMonth: number;
