@@ -25,6 +25,44 @@ export interface UserInput {
   landShareSqm: number;
 }
 
+// ─── 1단계: 구역 기본 정보 ────────────────────────────────────────────────────
+
+export interface UnitsByCategory {
+  u40:    number | null;
+  c40_60: number | null;
+  c60_85: number | null;
+  c85_135: number | null;
+  o135:   number | null;
+}
+
+export interface Step1Data {
+  // 코드
+  lawdCd:   string | null;   // 시군코드 5자리
+  bjdCode:  string | null;   // 법정동코드 10자리
+
+  // 평형별 세대수
+  existingUnits: UnitsByCategory;
+  newUnits:      UnitsByCategory;
+
+  // 용적률
+  farExisting: number | null;
+  farNew:      number | null;
+
+  // 면적
+  zoneSqm:           number | null;  // 구역면적 (DB)
+  buildingFloorArea: number | null;  // 건축물대장 연면적
+
+  // 정비 단계
+  projectStage:        string;
+  stageStartDate:      string | null;  // YYYY-MM-DD
+  stageElapsedMonths:  number | null;
+
+  // 공사비
+  constructionCostPerPyung: number | null;
+  constructionTier:         string | null;
+  kosisIndex:               number | null;
+}
+
 export const DEFAULT_USER_INPUT: UserInput = {
   zoneId: "",
   projectType: "reconstruction",

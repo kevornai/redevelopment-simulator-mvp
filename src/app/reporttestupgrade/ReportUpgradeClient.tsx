@@ -2,12 +2,11 @@
 
 import React, { useState, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { UserInput, DEFAULT_USER_INPUT } from "./types";
+import { UserInput, DEFAULT_USER_INPUT, Step1Data, UnitsByCategory } from "./types";
+import { fetchStep1Data } from "./actions";
 
-// Kakao 지도 SDK는 브라우저 전용 — SSR 비활성화
 const ZoneMap = dynamic(() => import("@/components/map/ZoneMap"), { ssr: false });
 
-// ─── 구역 목록 아이템 ──────────────────────────────────────────────────────────
 interface ZoneListItem {
   zone_id: string;
   zone_name: string | null;
@@ -15,7 +14,6 @@ interface ZoneListItem {
   project_stage: string;
 }
 
-// ─── 숫자 포맷 ────────────────────────────────────────────────────────────────
 function fWon(value: number): string {
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
@@ -25,7 +23,8 @@ function fWon(value: number): string {
   return `${sign}${abs.toLocaleString()}원`;
 }
 
-// ─── 숫자 입력 공통 컴포넌트 ──────────────────────────────────────────────────
+// ─── 입력 컴포넌트들 ──────────────────────────────────────────────────────────
+
 function NumInput({
   label, value, onChange, placeholder, note, showWon,
 }: {
@@ -54,14 +53,88 @@ function NumInput({
   );
 }
 
-// ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
-export default function ReportUpgradeClient() {
-  const [dbZones, setDbZones]   = useState<ZoneListItem[]>([]);
-  const [input, setInput]       = useState<UserInput>(DEFAULT_USER_INPUT);
-  const [pyungUnit, setPyungUnit] = useState<"pyung" | "sqm">("pyung");
-  const [sqmRaw, setSqmRaw]     = useState("");
+function TextInput({
+  label, value, onChange, placeholder, note, mono,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  note?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium text-zinc-700">{label}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder ?? "—"}
+        className={`border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${mono ? "font-mono" : ""}`}
+      />
+      {note && <p className="text-xs text-zinc-400">{note}</p>}
+    </div>
+  );
+}
 
-  // 구역 목록 로드
+function NullableNumInput({
+  label, value, onChange, placeholder, suffix,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (v: number | null) => void;
+  placeholder?: string;
+  suffix?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs text-zinc-500">{label}</label>
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          value={value ?? ""}
+          onChange={(e) => {
+            const s = e.target.value;
+            onChange(s === "" ? null : Number(s));
+          }}
+          placeholder={placeholder ?? "—"}
+          className="border border-zinc-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        {suffix && <span className="text-xs text-zinc-400 whitespace-nowrap">{suffix}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─── 정비 단계 한글 ───────────────────────────────────────────────────────────
+const STAGE_KO: Record<string, string> = {
+  zone_designation:       "구역지정",
+  basic_plan:             "기본계획",
+  association_established:"조합설립인가",
+  project_implementation: "사업시행인가",
+  management_disposal:    "관리처분인가",
+  relocation:             "이주·철거",
+  construction_start:     "착공",
+  completion:             "준공",
+};
+
+// ─── 단계 편집 섹션 ───────────────────────────────────────────────────────────
+const STAGES = Object.entries(STAGE_KO);
+
+// ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
+
+export default function ReportUpgradeClient() {
+  const [dbZones, setDbZones]     = useState<ZoneListItem[]>([]);
+  const [input, setInput]         = useState<UserInput>(DEFAULT_USER_INPUT);
+  const [pyungUnit, setPyungUnit] = useState<"pyung" | "sqm">("pyung");
+  const [sqmRaw, setSqmRaw]       = useState("");
+
+  // 1단계 상태
+  const [step1Loading, setStep1Loading] = useState(false);
+  const [step1Error, setStep1Error]     = useState<string | null>(null);
+  const [step1, setStep1]               = useState<Step1Data | null>(null);
+
   useEffect(() => {
     fetch("/api/admin/zones-list")
       .then((r) => r.json())
@@ -69,13 +142,13 @@ export default function ReportUpgradeClient() {
       .catch(() => {});
   }, []);
 
-  // 구역 목록 로드 후 성일아파트 자동 선택
   useEffect(() => {
     if (dbZones.length === 0 || input.zoneId !== "") return;
-    const target = dbZones.find((z) =>
-      z.zone_name?.includes("성일") ||
-      z.zone_name?.includes("권선2") ||
-      z.zone_name?.includes("권선 2")
+    const target = dbZones.find(
+      (z) =>
+        z.zone_name?.includes("성일") ||
+        z.zone_name?.includes("권선2") ||
+        z.zone_name?.includes("권선 2"),
     );
     if (target) {
       setInput((prev) => ({
@@ -101,30 +174,65 @@ export default function ReportUpgradeClient() {
       projectType: recon ? "reconstruction" : "redevelopment",
       propertyType: recon ? "apartment" : "villa",
     }));
+    setStep1(null);
+    setStep1Error(null);
   }
 
-  const handleMapSelect = useCallback(
-    (zoneId: string, projectType: string) => {
-      const recon = projectType === "reconstruction";
-      setInput((prev) => ({
-        ...prev,
-        zoneId,
-        projectType: recon ? "reconstruction" : "redevelopment",
-        propertyType: recon ? "apartment" : "villa",
-      }));
-      document.getElementById("user-input-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    },
-    [],
-  );
+  const handleMapSelect = useCallback((zoneId: string, projectType: string) => {
+    const recon = projectType === "reconstruction";
+    setInput((prev) => ({
+      ...prev,
+      zoneId,
+      projectType: recon ? "reconstruction" : "redevelopment",
+      propertyType: recon ? "apartment" : "villa",
+    }));
+    setStep1(null);
+    setStep1Error(null);
+    document.getElementById("user-input-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  async function handleStep1() {
+    if (!input.zoneId) return;
+    setStep1Loading(true);
+    setStep1Error(null);
+    const { data, error } = await fetchStep1Data(input.zoneId);
+    if (error || !data) setStep1Error(error ?? "알 수 없는 오류");
+    else setStep1(data);
+    setStep1Loading(false);
+    setTimeout(() => {
+      document.getElementById("step1-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  }
+
+  // step1 편집 헬퍼
+  function setS1<K extends keyof Step1Data>(key: K, value: Step1Data[K]) {
+    setStep1((prev) => prev ? { ...prev, [key]: value } : prev);
+  }
+
+  function setExisting(cat: keyof UnitsByCategory, v: number | null) {
+    setStep1((prev) => prev ? { ...prev, existingUnits: { ...prev.existingUnits, [cat]: v } } : prev);
+  }
+
+  function setNew(cat: keyof UnitsByCategory, v: number | null) {
+    setStep1((prev) => prev ? { ...prev, newUnits: { ...prev.newUnits, [cat]: v } } : prev);
+  }
 
   const selectedZone = dbZones.find((z) => z.zone_id === input.zoneId);
   const recons = dbZones.filter((z) => z.project_type === "reconstruction");
   const redevs = dbZones.filter((z) => z.project_type === "redevelopment");
-
   const netCash = input.purchasePrice - input.purchaseLoanAmount - input.currentDeposit;
   const ltv = input.purchasePrice > 0
-    ? ((input.purchaseLoanAmount / input.purchasePrice) * 100).toFixed(0)
+    ? `${((input.purchaseLoanAmount / input.purchasePrice) * 100).toFixed(0)}%`
     : "—";
+
+  // 평형 카테고리 컬럼 정의
+  const CATS: { key: keyof UnitsByCategory; label: string }[] = [
+    { key: "u40",    label: "40㎡미만" },
+    { key: "c40_60", label: "40~60㎡" },
+    { key: "c60_85", label: "60~85㎡" },
+    { key: "c85_135",label: "85~135㎡"},
+    { key: "o135",   label: "135㎡초과"},
+  ];
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-12 flex flex-col gap-10">
@@ -140,9 +248,7 @@ export default function ReportUpgradeClient() {
       <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-6 flex flex-col gap-4">
         <div>
           <h2 className="font-bold text-zinc-900">관심 구역 선택</h2>
-          <p className="text-xs text-zinc-400 mt-0.5">
-            지도에서 구역을 클릭하면 아래 폼에 자동 반영됩니다.
-          </p>
+          <p className="text-xs text-zinc-400 mt-0.5">지도에서 구역을 클릭하면 아래 폼에 자동 반영됩니다.</p>
         </div>
         <ZoneMap onSelect={handleMapSelect} selectedZoneId={input.zoneId} />
         {selectedZone && (
@@ -152,9 +258,7 @@ export default function ReportUpgradeClient() {
               {selectedZone.zone_name ?? selectedZone.zone_id}
             </span>
             <span className={`text-xs px-2 py-0.5 rounded-full ${
-              input.projectType === "reconstruction"
-                ? "bg-blue-100 text-blue-600"
-                : "bg-green-100 text-green-600"
+              input.projectType === "reconstruction" ? "bg-blue-100 text-blue-600" : "bg-green-100 text-green-600"
             }`}>
               {input.projectType === "reconstruction" ? "재건축" : "재개발"}
             </span>
@@ -167,17 +271,14 @@ export default function ReportUpgradeClient() {
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-zinc-900">사용자 입력값</h2>
           <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
-            input.projectType === "reconstruction"
-              ? "bg-blue-100 text-blue-700"
-              : "bg-green-100 text-green-700"
+            input.projectType === "reconstruction" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"
           }`}>
             {input.projectType === "reconstruction" ? "🏢 재건축" : "🏘️ 재개발"}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-
-          {/* 구역 선택 드롭다운 */}
+          {/* 구역 선택 */}
           <div className="flex flex-col gap-1.5 lg:col-span-2">
             <label className="text-sm font-medium text-zinc-700">관심 구역</label>
             <select
@@ -189,9 +290,7 @@ export default function ReportUpgradeClient() {
               {recons.length > 0 && (
                 <optgroup label="✅ 재건축">
                   {recons.map((z) => (
-                    <option key={z.zone_id} value={z.zone_id}>
-                      {z.zone_name ?? z.zone_id}
-                    </option>
+                    <option key={z.zone_id} value={z.zone_id}>{z.zone_name ?? z.zone_id}</option>
                   ))}
                 </optgroup>
               )}
@@ -205,9 +304,7 @@ export default function ReportUpgradeClient() {
                 </optgroup>
               )}
             </select>
-            <p className="text-xs text-zinc-400">
-              재건축 {recons.length}개 · 재개발 {redevs.length}개
-            </p>
+            <p className="text-xs text-zinc-400">재건축 {recons.length}개 · 재개발 {redevs.length}개</p>
           </div>
 
           {/* 물건 유형 */}
@@ -230,71 +327,37 @@ export default function ReportUpgradeClient() {
             </select>
           </div>
 
-          {/* 매수 희망가 */}
-          <NumInput
-            label="매수 희망가 (원)"
-            value={input.purchasePrice}
-            onChange={(v) => set("purchasePrice", v)}
-            placeholder="예: 300000000"
-            showWon
-          />
+          <NumInput label="매수 희망가 (원)" value={input.purchasePrice} onChange={(v) => set("purchasePrice", v)} placeholder="예: 300000000" showWon />
+          <NumInput label="매수 시 대출금 (원)" value={input.purchaseLoanAmount} onChange={(v) => set("purchaseLoanAmount", v)} placeholder="예: 200000000" note="보유기간 이자 계산에 사용" showWon />
+          <NumInput label="현재 전/월세 보증금 (원)" value={input.currentDeposit} onChange={(v) => set("currentDeposit", v)} placeholder="예: 0" showWon />
 
-          {/* 대출금 */}
-          <NumInput
-            label="매수 시 대출금 (원)"
-            value={input.purchaseLoanAmount}
-            onChange={(v) => set("purchaseLoanAmount", v)}
-            placeholder="예: 200000000"
-            note="보유기간 이자 계산에 사용"
-            showWon
-          />
-
-          {/* 전/월세 보증금 */}
-          <NumInput
-            label="현재 전/월세 보증금 (원)"
-            value={input.currentDeposit}
-            onChange={(v) => set("currentDeposit", v)}
-            placeholder="예: 0 (거주 중이면 0)"
-            showWon
-          />
-
-          {/* 희망 조합원 분양 평형 */}
+          {/* 희망 평형 */}
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium text-zinc-700">희망 조합원 분양 평형</label>
               <div className="flex rounded-lg overflow-hidden border border-zinc-300 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setPyungUnit("pyung")}
-                  className={`px-2.5 py-1 font-medium transition-colors ${pyungUnit === "pyung" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}
-                >평형</button>
-                <button
-                  type="button"
-                  onClick={() => setPyungUnit("sqm")}
-                  className={`px-2.5 py-1 font-medium transition-colors ${pyungUnit === "sqm" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}
-                >㎡</button>
+                <button type="button" onClick={() => setPyungUnit("pyung")}
+                  className={`px-2.5 py-1 font-medium transition-colors ${pyungUnit === "pyung" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}>
+                  평형
+                </button>
+                <button type="button" onClick={() => setPyungUnit("sqm")}
+                  className={`px-2.5 py-1 font-medium transition-colors ${pyungUnit === "sqm" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}>
+                  ㎡
+                </button>
               </div>
             </div>
             {pyungUnit === "pyung" ? (
-              <input
-                type="number"
-                value={input.desiredPyung || ""}
-                onChange={(e) => set("desiredPyung", Number(e.target.value))}
+              <input type="number" value={input.desiredPyung || ""} onChange={(e) => set("desiredPyung", Number(e.target.value))}
                 placeholder="예: 25, 34"
-                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             ) : (
-              <input
-                type="number"
-                value={sqmRaw}
-                onChange={(e) => {
-                  setSqmRaw(e.target.value);
-                  const sqm = parseFloat(e.target.value);
-                  if (sqm > 0) set("desiredPyung", Math.round((sqm / 3.3058) * 10) / 10);
-                }}
+              <input type="number" value={sqmRaw} onChange={(e) => {
+                setSqmRaw(e.target.value);
+                const sqm = parseFloat(e.target.value);
+                if (sqm > 0) set("desiredPyung", Math.round((sqm / 3.3058) * 10) / 10);
+              }}
                 placeholder="예: 84.91"
-                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             )}
             {input.desiredPyung > 0 && (
               <p className="text-xs font-semibold text-blue-600">
@@ -305,35 +368,18 @@ export default function ReportUpgradeClient() {
             )}
           </div>
 
-          {/* 공동주택 공시가격 */}
-          <NumInput
-            label="공동주택 공시가격 (원)"
-            value={input.officialValuation}
-            onChange={(v) => set("officialValuation", v)}
-            placeholder="미입력 시 자동 조회"
-            note="입력 시 우선 적용"
-            showWon
-          />
+          <NumInput label="공동주택 공시가격 (원)" value={input.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="미입력 시 자동 조회" note="입력 시 우선 적용" showWon />
 
-          {/* 대지지분 — 재건축 전용 */}
           {input.projectType === "reconstruction" && (
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium text-zinc-700">
                 대지지분 (㎡)
-                <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                  재건축 핵심 지표
-                </span>
+                <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">재건축 핵심 지표</span>
               </label>
-              <input
-                type="number"
-                value={input.landShareSqm || ""}
-                onChange={(e) => set("landShareSqm", parseFloat(e.target.value) || 0)}
+              <input type="number" value={input.landShareSqm || ""} onChange={(e) => set("landShareSqm", parseFloat(e.target.value) || 0)}
                 placeholder="예: 16.5"
-                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-zinc-400">
-                등기부등본 → 표제부 → 「대지권의 표시」에서 확인
-              </p>
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="text-xs text-zinc-400">등기부등본 → 표제부 → 「대지권의 표시」에서 확인</p>
             </div>
           )}
         </div>
@@ -341,11 +387,10 @@ export default function ReportUpgradeClient() {
         {/* 실투자금 미리보기 */}
         <div className="bg-blue-50 rounded-xl p-4 text-sm flex flex-wrap gap-x-8 gap-y-1">
           <span className="text-zinc-500">
-            실투자 현금 (대출·보증금 제외):
-            <strong className="text-zinc-900 ml-2">{fWon(netCash)}</strong>
+            실투자 현금 (대출·보증금 제외): <strong className="text-zinc-900 ml-1">{fWon(netCash)}</strong>
           </span>
           <span className="text-zinc-500">
-            LTV: <strong className="text-zinc-900 ml-2">{ltv}{typeof ltv === "string" && ltv !== "—" ? "%" : ""}</strong>
+            LTV: <strong className="text-zinc-900 ml-1">{ltv}</strong>
           </span>
         </div>
 
@@ -355,15 +400,245 @@ export default function ReportUpgradeClient() {
           </div>
         )}
 
-        {/* 분석 실행 버튼 — 연결은 나중에 */}
+        {/* 1단계 실행 버튼 */}
         <button
           type="button"
-          disabled={!input.zoneId || input.projectType !== "reconstruction"}
+          onClick={handleStep1}
+          disabled={step1Loading || !input.zoneId || input.projectType !== "reconstruction"}
           className="rounded-xl bg-blue-600 text-white font-bold py-3.5 hover:bg-blue-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-base"
         >
-          분석 실행 →
+          {step1Loading ? "불러오는 중..." : "1단계 실행 →"}
         </button>
+
+        {step1Error && (
+          <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            오류: {step1Error}
+          </div>
+        )}
       </div>
+
+      {/* ── 1단계 결과 ──────────────────────────────────────────────────────── */}
+      {step1 && (
+        <div id="step1-section" className="bg-white rounded-2xl border border-zinc-200 shadow-sm p-8 flex flex-col gap-8">
+          <div>
+            <span className="text-xs font-semibold text-blue-600 uppercase tracking-widest">1단계</span>
+            <h2 className="font-bold text-zinc-900 mt-0.5">구역 기본 정보 검토</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">DB·API에서 자동 조회한 값입니다. 수정이 필요한 항목은 직접 편집하세요.</p>
+          </div>
+
+          {/* ① 코드 정보 */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">① 코드 정보</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextInput
+                label="시군코드 (5자리)"
+                value={step1.lawdCd ?? ""}
+                onChange={(v) => setS1("lawdCd", v || null)}
+                placeholder="예: 41113"
+                mono
+              />
+              <TextInput
+                label="법정동코드 (10자리)"
+                value={step1.bjdCode ?? ""}
+                onChange={(v) => setS1("bjdCode", v || null)}
+                placeholder="예: 4111300100"
+                mono
+              />
+            </div>
+          </section>
+
+          {/* ② 평형별 세대수 */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">② 평형별 세대수</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-zinc-50">
+                    <th className="text-left px-3 py-2 text-xs font-semibold text-zinc-500 w-24">구분</th>
+                    {CATS.map((c) => (
+                      <th key={c.key} className="text-center px-2 py-2 text-xs font-semibold text-zinc-500">{c.label}</th>
+                    ))}
+                    <th className="text-center px-2 py-2 text-xs font-semibold text-zinc-500">합계</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* 재건축 전 */}
+                  <tr className="border-t border-zinc-100">
+                    <td className="px-3 py-2 text-xs font-medium text-zinc-500">재건축 전</td>
+                    {CATS.map((c) => (
+                      <td key={c.key} className="px-2 py-1">
+                        <input
+                          type="number"
+                          value={step1.existingUnits[c.key] ?? ""}
+                          onChange={(e) => setExisting(c.key, e.target.value === "" ? null : Number(e.target.value))}
+                          className="border border-zinc-300 rounded px-2 py-1 text-sm text-center w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                    ))}
+                    <td className="px-2 py-2 text-center text-sm font-semibold text-zinc-700">
+                      {CATS.reduce((s, c) => s + (step1.existingUnits[c.key] ?? 0), 0) || "—"}
+                    </td>
+                  </tr>
+                  {/* 재건축 후 */}
+                  <tr className="border-t border-zinc-100 bg-blue-50/30">
+                    <td className="px-3 py-2 text-xs font-medium text-zinc-500">재건축 후</td>
+                    {CATS.map((c) => (
+                      <td key={c.key} className="px-2 py-1">
+                        <input
+                          type="number"
+                          value={step1.newUnits[c.key] ?? ""}
+                          onChange={(e) => setNew(c.key, e.target.value === "" ? null : Number(e.target.value))}
+                          className="border border-zinc-300 rounded px-2 py-1 text-sm text-center w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </td>
+                    ))}
+                    <td className="px-2 py-2 text-center text-sm font-semibold text-blue-700">
+                      {CATS.reduce((s, c) => s + (step1.newUnits[c.key] ?? 0), 0) || "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* ③ 용적률 */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">③ 용적률</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <NullableNumInput
+                label="기존 용적률 (%)"
+                value={step1.farExisting}
+                onChange={(v) => setS1("farExisting", v)}
+                placeholder="예: 180"
+                suffix="%"
+              />
+              <NullableNumInput
+                label="재건축 후 용적률 (%)"
+                value={step1.farNew}
+                onChange={(v) => setS1("farNew", v)}
+                placeholder="미확정 시 빈칸"
+                suffix="%"
+              />
+            </div>
+          </section>
+
+          {/* ④ 구역 크기 */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">④ 구역 크기</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <NullableNumInput
+                label="구역면적 (㎡, DB)"
+                value={step1.zoneSqm}
+                onChange={(v) => setS1("zoneSqm", v)}
+                suffix="㎡"
+              />
+              <NullableNumInput
+                label="건축물대장 연면적 (㎡)"
+                value={step1.buildingFloorArea}
+                onChange={(v) => setS1("buildingFloorArea", v)}
+                placeholder={step1.buildingFloorArea == null ? "API 미조회" : undefined}
+                suffix="㎡"
+              />
+            </div>
+            {step1.buildingFloorArea == null && (
+              <p className="text-xs text-zinc-400">건축물대장 연면적: 좌표 또는 API 키 없어 미조회</p>
+            )}
+          </section>
+
+          {/* ⑤ 정비 단계 */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑤ 정비 단계</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* 단계 선택 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">정비 단계</label>
+                <select
+                  value={step1.projectStage}
+                  onChange={(e) => setS1("projectStage", e.target.value)}
+                  className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {STAGES.map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              {/* 단계 시작일 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">단계 시작일</label>
+                <input
+                  type="date"
+                  value={step1.stageStartDate ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value || null;
+                    const elapsed = v ? (() => {
+                      const start = new Date(v);
+                      const now = new Date();
+                      return (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+                    })() : null;
+                    setStep1((prev) => prev ? { ...prev, stageStartDate: v, stageElapsedMonths: elapsed } : prev);
+                  }}
+                  className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              {/* 경과 개월 */}
+              <NullableNumInput
+                label="경과 개월"
+                value={step1.stageElapsedMonths}
+                onChange={(v) => setS1("stageElapsedMonths", v)}
+                suffix="개월"
+              />
+            </div>
+            {step1.stageElapsedMonths != null && (
+              <p className="text-xs text-zinc-400">
+                {STAGE_KO[step1.projectStage] ?? step1.projectStage} 진행 중 ·{" "}
+                {Math.floor(step1.stageElapsedMonths / 12) > 0
+                  ? `${Math.floor(step1.stageElapsedMonths / 12)}년 `
+                  : ""}
+                {step1.stageElapsedMonths % 12}개월 경과
+              </p>
+            )}
+          </section>
+
+          {/* ⑥ 공사비 */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑥ 공사비</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <NullableNumInput
+                label="평당 공사비 (원/평)"
+                value={step1.constructionCostPerPyung}
+                onChange={(v) => setS1("constructionCostPerPyung", v)}
+                suffix="원/평"
+              />
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-zinc-500">급지</label>
+                <input
+                  type="text"
+                  value={step1.constructionTier ?? ""}
+                  onChange={(e) => setS1("constructionTier", e.target.value || null)}
+                  className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-zinc-500">KOSIS 건설공사비지수</label>
+                <input
+                  type="number"
+                  value={step1.kosisIndex ?? ""}
+                  onChange={(e) => setS1("kosisIndex", e.target.value === "" ? null : Number(e.target.value))}
+                  className="border border-zinc-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-zinc-400">기준: 2020=100</p>
+              </div>
+            </div>
+            {step1.constructionCostPerPyung != null && (
+              <p className="text-xs text-zinc-400">
+                추정 평당 공사비: <span className="font-semibold text-zinc-700">{step1.constructionCostPerPyung.toLocaleString()}원</span>
+                {step1.kosisIndex != null && ` (KOSIS ${step1.kosisIndex} 지수 반영)`}
+              </p>
+            )}
+          </section>
+
+        </div>
+      )}
 
     </div>
   );
