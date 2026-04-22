@@ -52,6 +52,18 @@ function fMonth(m: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 디버그 라벨 헬퍼 — 영어 키 + 한국어 설명
+// ─────────────────────────────────────────────────────────────────────────────
+
+function DL({ k, v }: { k: string; v: string }) {
+  return (
+    <span className="text-zinc-400">
+      {k}<span className="ml-1 text-zinc-300 not-italic"> {v}</span>
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 시나리오 스타일
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -478,17 +490,35 @@ export default function ReportTestClient() {
   }
 
   const [form, setForm] = useState<CalculationInput>({
-    zoneId: "banpo",
-    projectType: "reconstruction",
-    propertyType: "apartment",
-    purchasePrice: 4500000000,
-    purchaseLoanAmount: 2000000000,
+    zoneId: "",  // zones 로드 후 성일아파트로 자동 설정
+    projectType: "redevelopment",
+    propertyType: "villa",
+    purchasePrice: 300_000_000,
+    purchaseLoanAmount: 200_000_000,
     currentDeposit: 0,
-    desiredPyung: 59,
+    desiredPyung: 18,
     officialValuation: 0,
     landShareSqm: 0,
     admin: {},
   });
+
+  // zones 로드 완료 시 권선 2구역(성일아파트) 자동 선택
+  useEffect(() => {
+    if (dbZones.length > 0 && form.zoneId === "") {
+      const target = dbZones.find(z =>
+        z.zone_name?.includes("성일") || z.zone_name?.includes("권선2") || z.zone_name?.includes("권선 2")
+      );
+      if (target) {
+        setForm(prev => ({
+          ...prev,
+          zoneId: target.zone_id,
+          projectType: target.project_type === "reconstruction" ? "reconstruction" : "redevelopment",
+          propertyType: target.project_type === "reconstruction" ? "apartment" : "villa",
+        }));
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbZones]);
 
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1000,16 +1030,16 @@ export default function ReportTestClient() {
               <details className="mt-2">
                 <summary className="text-xs text-zinc-400 cursor-pointer hover:text-zinc-600">🔍 계산 투입값 (디버그)</summary>
                 <div className="mt-1 rounded-lg bg-zinc-50 border border-zinc-200 p-3 font-mono text-xs text-zinc-600 grid grid-cols-2 gap-x-4 gap-y-1">
-                  <span className="text-zinc-400">lawd_cd (DB)</span><span className={result.debugParams.lawd_cd ? "text-zinc-800" : "text-red-500"}>{result.debugParams.lawd_cd ?? "null ❌"}</span>
-                  <span className="text-zinc-400">bjd_code (DB)</span><span className={result.debugParams.bjd_code ? "text-zinc-800" : "text-red-500"}>{result.debugParams.bjd_code ?? "null ❌"}</span>
-                  <span className="text-zinc-400">effectiveLawdCd</span><span className={result.debugParams.effectiveLawdCd ? "text-zinc-800" : "text-red-500"}>{result.debugParams.effectiveLawdCd ?? "null ❌"}</span>
-                  <span className="text-zinc-400">existingUnits</span><span className={result.debugParams.existingUnits > 0 ? "text-zinc-800" : "text-red-500"}>{result.debugParams.existingUnits} {result.debugParams.existingUnits === 0 ? "❌ 추정 안 함" : "✓"}</span>
-                  <span className="text-zinc-400">plannedUnitsMember</span><span>{result.debugParams.plannedUnitsMember ?? "null"}</span>
-                  <span className="text-zinc-400">nearbyOk</span><span className={result.debugParams.nearbyOk ? "text-green-600" : "text-red-500"}>{result.debugParams.nearbyOk ? "✓ true" : "✗ false"}</span>
-                  <span className="text-zinc-400">molitOk</span><span className={result.debugParams.molitOk ? "text-green-600" : "text-red-500"}>{result.debugParams.molitOk ? "✓ true" : "✗ false"}</span>
+                  <DL k="lawd_cd" v="시군구코드(5)" /><span className={result.debugParams.lawd_cd ? "text-zinc-800" : "text-red-500"}>{result.debugParams.lawd_cd ?? "null ❌"}</span>
+                  <DL k="bjd_code" v="법정동코드(10)" /><span className={result.debugParams.bjd_code ? "text-zinc-800" : "text-red-500"}>{result.debugParams.bjd_code ?? "null ❌"}</span>
+                  <DL k="effectiveLawdCd" v="실사용코드" /><span className={result.debugParams.effectiveLawdCd ? "text-zinc-800" : "text-red-500"}>{result.debugParams.effectiveLawdCd ?? "null ❌"}</span>
+                  <DL k="existingUnits" v="기존세대수" /><span className={result.debugParams.existingUnits > 0 ? "text-zinc-800" : "text-red-500"}>{result.debugParams.existingUnits} {result.debugParams.existingUnits === 0 ? "❌ 추정 안 함" : "✓"}</span>
+                  <DL k="plannedUnitsMember" v="조합원세대수" /><span>{result.debugParams.plannedUnitsMember ?? "null"}</span>
+                  <DL k="nearbyOk" v="인근신축조회" /><span className={result.debugParams.nearbyOk ? "text-green-600" : "text-red-500"}>{result.debugParams.nearbyOk ? "✓ true" : "✗ false"}</span>
+                  <DL k="molitOk" v="국토부조회" /><span className={result.debugParams.molitOk ? "text-green-600" : "text-red-500"}>{result.debugParams.molitOk ? "✓ true" : "✗ false"}</span>
                   <span className="text-zinc-400">건축물대장</span><span className={result.debugParams.buildingFloorAreaFromApi ? "text-green-600" : "text-red-500"}>{result.debugParams.buildingFloorAreaFromApi ? `✓ ${result.debugParams.buildingFloorAreaRaw?.toLocaleString()}㎡ / 현용적률 ${result.debugParams.buildingFloorAreaFAR ?? "—"}%` : "✗ 조회 실패"}</span>
-                  <span className="text-zinc-400">stageRank</span><span>{result.debugParams.projectStageRank}</span>
-                  <span className="text-zinc-400">total_appraisal_value</span>
+                  <DL k="stageRank" v="단계순위" /><span>{result.debugParams.projectStageRank}</span>
+                  <DL k="total_appraisal_value" v="총종전자산" />
                   <span>
                     <span className="font-medium">{(result.debugParams.total_appraisal_value / 1e8).toFixed(1)}억</span>
                     <span className="ml-1 text-xs text-zinc-400">({result.debugParams.priorAssetMethodUsed})</span>
@@ -1031,14 +1061,14 @@ export default function ReportTestClient() {
                       )}
                     </span>
                   </span>
-                  <span className="text-zinc-400">total_floor_area</span><span>{result.debugParams.total_floor_area.toLocaleString()}㎡</span>
-                  <span className="text-zinc-400">member_sale_area</span>
+                  <DL k="total_floor_area" v="신축연면적" /><span>{result.debugParams.total_floor_area.toLocaleString()}㎡</span>
+                  <DL k="member_sale_area" v="조합원분양면적" />
                   <span className={result.debugParams.saleAreaSource === "calculated" ? "text-green-600" : result.debugParams.saleAreaSource === "missing" ? "text-red-500" : ""}>
                     {result.debugParams.saleAreaSource === "missing"
                       ? `✗ 필요: ${result.debugParams.missingSaleAreaFields.join(", ")}`
                       : `${result.debugParams.saleAreaSource === "calculated" ? "✓ " : ""}${result.debugParams.member_sale_area.toLocaleString()}㎡`}
                   </span>
-                  <span className="text-zinc-400">general_sale_area</span>
+                  <DL k="general_sale_area" v="일반분양면적" />
                   <span className={result.debugParams.saleAreaSource === "calculated" ? "text-green-600" : result.debugParams.saleAreaSource === "missing" ? "text-red-500" : ""}>
                     {result.debugParams.saleAreaSource === "missing"
                       ? `✗ 필요: ${result.debugParams.missingSaleAreaFields.join(", ")}`
@@ -1068,10 +1098,13 @@ export default function ReportTestClient() {
                     </>
                   )}
                   <span className="col-span-2 border-t border-zinc-200 pt-1 text-zinc-400 font-semibold">── 시세·분양가</span>
-                  <span className="text-zinc-400">p_base</span><span className={result.debugParams.p_base > 50_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.p_base / 1e4).toFixed(0)}만/평 {result.debugParams.p_base > 50_000_000 ? "⚠️ 서울값?" : ""}</span>
-                  <span className="text-zinc-400">member_sale_price</span><span className={result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.member_sale_price_per_pyung / 1e4).toFixed(0)}만/평 {result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "⚠️ 서울값?" : ""}</span>
-                  <span className="text-zinc-400">peak_local</span><span>{(result.debugParams.peak_local / 1e4).toFixed(0)}만/평</span>
-                  <span className="text-zinc-400">neighbor_new_apt</span><span>{(result.debugParams.neighbor_new_apt_price / 1e8).toFixed(2)}억</span>
+                  <DL k="p_base" v="일반분양예상가" /><span className={result.debugParams.p_base > 50_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.p_base / 1e4).toFixed(0)}만/평 {result.debugParams.p_base > 50_000_000 ? "⚠️ 서울값?" : ""}</span>
+                  <DL k="member_sale_price" v="조합원분양가" /><span className={result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "text-red-500 font-bold" : "text-zinc-800"}>{(result.debugParams.member_sale_price_per_pyung / 1e4).toFixed(0)}만/평 {result.debugParams.member_sale_price_per_pyung > 40_000_000 ? "⚠️ 서울값?" : ""}</span>
+                  <DL k="peak_local" v="지역최고분양가" /><span>{(result.debugParams.peak_local / 1e4).toFixed(0)}만/평</span>
+                  <DL k="neighbor_new_apt" v="인근신축시세" /><span>{(result.debugParams.neighbor_new_apt_price / 1e8).toFixed(2)}억</span>
+                  <span className="col-span-2 border-t border-zinc-200 pt-1 text-zinc-400 font-semibold">── 공사비</span>
+                  <DL k="construction_cost" v="평당공사비" /><span>{(result.debugParams.current_construction_cost / 1e4).toFixed(0)}만/평</span>
+                  <DL k="construction_tier" v="급지" /><span className="text-zinc-700">{result.debugParams.estimatedConstructionTier}</span>
                 </div>
               </details>
               {/* 계산 과정 상세 (관리자용) */}
