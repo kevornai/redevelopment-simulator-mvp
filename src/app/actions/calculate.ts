@@ -35,6 +35,8 @@ export interface CalculationInput {
     landOfficialPricePerSqm?: number;   // 개별공시지가 (원/㎡) — 토지대장
     // 공사비
     constructionCostPerPyung?: number;  // 평당 공사비 (원/평) — 도급계약서/관리처분계획서
+    // 일반분양 세대수 (사업시행인가 이전 단계에서 직접 입력)
+    generalUnitsInput?: number;
     // 사업 일정
     constructionStartYm?: string;       // 착공예정월 (YYYYMM) — 조합 공문
   };
@@ -466,43 +468,37 @@ function estimateParamsForStage(
   const landPricePerSqm = (input.admin?.landOfficialPricePerSqm ?? 0) ||
                           (z.land_official_price_per_sqm ?? 0);
 
-  // ── C섹션: 총종전자산 감정평가액 — 3가지 방법 모두 계산 (비교용) ──────────
+  // ── C섹션: 총종전자산 감정평가액 ────────────────────────────────────────────
+  // 확정 산식: existingUnits × officialPrice × 1.4
+  //   officialPrice 우선순위: 사용자 입력 → NSDI API → (없으면 method2/3 fallback)
+  // method2/3는 공시가 없을 때만 보조 사용 (비교 표시 목적으로도 계산)
   if (rank < STAGE_RANK.management_disposal) {
-    // method1: 세대수 × 공시가 × 감평율 × 0.9
-    if (officialVal > 0) {
-      priorAsset.method1 = existingUnits * officialVal * z.avg_appraisal_rate * 0.9;
-    }
-
-    // method2: 구축(20년+) 실거래 역산 — 연면적 × 65%(주거비율) × 구축시세 × 0.8
+    // 비교용 method2: 구축 실거래 역산
     if (market.oldAptPrice?.fromApi && market.oldAptPrice.medianPricePerPyung > 0 && z.total_floor_area > 0) {
       priorAsset.method2 = (z.total_floor_area / 3.3058) * 0.65 * market.oldAptPrice.medianPricePerPyung * 0.8;
     }
-
-    // method3: 구역면적 × 개별공시지가 × 1.5
+    // 비교용 method3: 구역면적 × 공시지가 × 1.5
     if (z.zone_area_sqm && z.zone_area_sqm > 0 && landPricePerSqm > 0) {
       priorAsset.method3 = z.zone_area_sqm * landPricePerSqm * 1.5;
     }
 
-    // 우선순위: method3 → method1 → method2 → 대지지분 역산 → fallback
-    let estimatedTotal = 0;
-    if (priorAsset.method3) {
-      estimatedTotal = priorAsset.method3;
-      priorAsset.methodUsed = "method3";
-    } else if (priorAsset.method1) {
-      estimatedTotal = priorAsset.method1;
+    // 확정 산식 (1순위): existingUnits × officialPrice × 1.4
+    if (officialVal > 0) {
+      priorAsset.method1 = existingUnits * officialVal * 1.4;
+      overrides.total_appraisal_value = priorAsset.method1;
       priorAsset.methodUsed = "method1";
-    } else if (input.landShareSqm > 0 && landPricePerSqm > 0) {
-      estimatedTotal = existingUnits * (input.landShareSqm * landPricePerSqm) / 0.65 * 0.90;
-      priorAsset.methodUsed = "대지지분역산";
+    } else if (priorAsset.method3) {
+      // 공시가 없을 때 method3 fallback (공시지가 기반)
+      overrides.total_appraisal_value = priorAsset.method3;
+      priorAsset.methodUsed = "method3";
     } else if (priorAsset.method2) {
-      estimatedTotal = priorAsset.method2;
+      // 마지막 fallback: 구축 시세 역산
+      overrides.total_appraisal_value = priorAsset.method2;
       priorAsset.methodUsed = "method2";
     } else {
-      estimatedTotal = existingUnits * (input.purchasePrice / 1.3);
-      priorAsset.methodUsed = "fallback";
+      // 데이터 없음 — overrides 설정 안 함, calculateAnalysis에서 에러 처리
+      priorAsset.methodUsed = "missing";
     }
-
-    if (estimatedTotal > 0) overrides.total_appraisal_value = estimatedTotal;
   }
 
   // ── B섹션: 면적 + 단가 (세대수 기반으로만 — zone_area×floor_ratio 금지) ───
@@ -611,7 +607,7 @@ function estimateConstructionCostByRegion(
 function resolveZoneParams(
   z: ZoneData,
   market: MarketData,
-  desiredPyung: number,
+  _desiredPyung: number,
   stagePercentiles: StagePercentilesCache,
 ) {
   // 금리: ECOS API 우선 (단위: % → 소수 변환)
@@ -769,59 +765,50 @@ function resolveZoneParams(
   }
 
   // 조합원/일반분양 면적 계산
-  // 방법 A: 평형별 세대수 × 공급면적 합산 → 조합원/일반 비율 분배
-  // 세대수 데이터 없으면 fallback 없이 "missing" 처리 — UI에서 공란 표시
+  // 산식:
+  //   조합원분양면적 = Σ existing_hshld_x × supply_area_x(㎡)
+  //   일반분양면적   = Σ max(0, new_lotout_y - existing_hshld_y) × supply_area_y(㎡)
+  // 공급면적 기준 (전용→공급 환산): u40=53, 40_60=80, 60_85=102.5, 85_135=147.5, o135=196
+  const SUPPLY_SQM = { u40: 53, c40_60: 80, c60_85: 102.5, c85_135: 147.5, o135: 196 } as const;
+
   const missingSaleAreaFields: string[] = [];
   let member_sale_area = z.member_sale_area;
   let general_sale_area = z.general_sale_area;
   let saleAreaSource: "calculated" | "db" | "missing" = "db";
 
-  const hasNewDist =
-    (z.new_units_sale_u40 != null || z.new_units_sale_40_60 != null ||
-     z.new_units_sale_60_85 != null || z.new_units_sale_85_135 != null || z.new_units_sale_o135 != null);
-  const hasExistDist =
-    (z.existing_units_u40 != null || z.existing_units_40_60 != null ||
-     z.existing_units_60_85 != null || z.existing_units_85_135 != null || z.existing_units_o135 != null);
+  const eu40    = z.existing_units_u40    ?? 0;
+  const e40_60  = z.existing_units_40_60  ?? 0;
+  const e60_85  = z.existing_units_60_85  ?? 0;
+  const e85_135 = z.existing_units_85_135 ?? 0;
+  const eo135   = z.existing_units_o135   ?? 0;
+  const totalExistingUnits = eu40 + e40_60 + e60_85 + e85_135 + eo135;
 
-  if (hasNewDist && hasExistDist) {
-    // 공급면적 대표값 (전용→공급 변환)
-    // u40    39㎡  → 53㎡
-    // 40_60  59㎡  → 80㎡
-    // 60_85  평균  → 102.5㎡ (74㎡형 95㎡, 84㎡형 110㎡ 평균)
-    // 85_135 114㎡ → 147.5㎡
-    // o135   150㎡ → 196㎡
-    const SUPPLY = { u40: 53, c40_60: 80, c60_85: 102.5, c85_135: 147.5, o135: 196 };
+  const nu40    = z.new_units_sale_u40    ?? 0;
+  const n40_60  = z.new_units_sale_40_60  ?? 0;
+  const n60_85  = z.new_units_sale_60_85  ?? 0;
+  const n85_135 = z.new_units_sale_85_135 ?? 0;
+  const no135   = z.new_units_sale_o135   ?? 0;
+  const totalNewUnits = nu40 + n40_60 + n60_85 + n85_135 + no135;
+
+  if (totalExistingUnits > 0 && totalNewUnits > 0) {
     member_sale_area =
-      (z.existing_units_u40    ?? 0) * SUPPLY.u40    +
-      (z.existing_units_40_60  ?? 0) * SUPPLY.c40_60 +
-      (z.existing_units_60_85  ?? 0) * SUPPLY.c60_85 +
-      (z.existing_units_85_135 ?? 0) * SUPPLY.c85_135 +
-      (z.existing_units_o135   ?? 0) * SUPPLY.o135;
+      eu40    * SUPPLY_SQM.u40    +
+      e40_60  * SUPPLY_SQM.c40_60 +
+      e60_85  * SUPPLY_SQM.c60_85 +
+      e85_135 * SUPPLY_SQM.c85_135 +
+      eo135   * SUPPLY_SQM.o135;
+
     general_sale_area =
-      Math.max(0, (z.new_units_sale_u40    ?? 0) - (z.existing_units_u40    ?? 0)) * SUPPLY.u40    +
-      Math.max(0, (z.new_units_sale_40_60  ?? 0) - (z.existing_units_40_60  ?? 0)) * SUPPLY.c40_60 +
-      Math.max(0, (z.new_units_sale_60_85  ?? 0) - (z.existing_units_60_85  ?? 0)) * SUPPLY.c60_85 +
-      Math.max(0, (z.new_units_sale_85_135 ?? 0) - (z.existing_units_85_135 ?? 0)) * SUPPLY.c85_135 +
-      Math.max(0, (z.new_units_sale_o135   ?? 0) - (z.existing_units_o135   ?? 0)) * SUPPLY.o135;
-    saleAreaSource = "calculated";
-  } else if (hasNewDist && z.planned_units_member && z.planned_units_general != null) {
-    // 기존 평형별 데이터 없을 때: 신규 전체 면적을 세대수 비율로 배분 (이전 방식)
-    const SUPPLY = { u40: 53, c40_60: 80, c60_85: 102.5, c85_135: 147.5, o135: 196 };
-    const totalSaleArea =
-      (z.new_units_sale_u40     ?? 0) * SUPPLY.u40    +
-      (z.new_units_sale_40_60   ?? 0) * SUPPLY.c40_60 +
-      (z.new_units_sale_60_85   ?? 0) * SUPPLY.c60_85 +
-      (z.new_units_sale_85_135  ?? 0) * SUPPLY.c85_135 +
-      (z.new_units_sale_o135    ?? 0) * SUPPLY.o135;
-    const totalUnits = z.planned_units_member + z.planned_units_general;
-    const memberRatio = totalUnits > 0 ? z.planned_units_member / totalUnits : 1;
-    member_sale_area  = totalSaleArea * memberRatio;
-    general_sale_area = totalSaleArea * (1 - memberRatio);
+      Math.max(0, nu40    - eu40)    * SUPPLY_SQM.u40    +
+      Math.max(0, n40_60  - e40_60)  * SUPPLY_SQM.c40_60 +
+      Math.max(0, n60_85  - e60_85)  * SUPPLY_SQM.c60_85 +
+      Math.max(0, n85_135 - e85_135) * SUPPLY_SQM.c85_135 +
+      Math.max(0, no135   - eo135)   * SUPPLY_SQM.o135;
+
     saleAreaSource = "calculated";
   } else {
-    if (!hasNewDist) missingSaleAreaFields.push('평형별세대수(new_units_sale_*)');
-    if (!z.planned_units_member) missingSaleAreaFields.push('조합원세대수(planned_units_member)');
-    if (z.planned_units_general == null) missingSaleAreaFields.push('일반분양세대수(planned_units_general)');
+    if (totalExistingUnits === 0) missingSaleAreaFields.push('기존 평형별 세대수(existing_hshld_*)');
+    if (totalNewUnits === 0)      missingSaleAreaFields.push('신축 평형별 세대수(new_lotout_*)');
     saleAreaSource = "missing";
   }
 
@@ -969,7 +956,7 @@ function mapGyeonggiZone(z: Record<string, any>): ZoneData {
 
 export async function calculateAnalysis(
   input: CalculationInput
-): Promise<{ data: CalculationResult | null; error: string | null }> {
+): Promise<{ data: CalculationResult | null; error: string | null; debugMessages?: string[] }> {
   const supabase = await createClient();
 
   const { data: rawZone, error: dbError } = await supabase
@@ -1021,6 +1008,23 @@ export async function calculateAnalysis(
   // Step 5b: API 데이터로 Zone 상수 오버라이드 (nearbyNewAptPrice → p_base/peak_local/neighbor)
   const apiResolved = resolveZoneParams(zForApi, marketData, input.desiredPyung, stagePercentiles) as ResolvedZoneData;
   apiResolved._priorAssetMethodUsed = priorAssetBreakdown.methodUsed;
+
+  // Step 5c: 필수 데이터 누락 검사 — 임의값 할당 대신 명시적 에러 반환
+  const missingDataMessages: string[] = [];
+  const officialValForCheck = input.officialValuation > 0
+    ? input.officialValuation
+    : (marketData.publicPrice?.officialPrice ?? 0);
+  if (officialValForCheck === 0 && priorAssetBreakdown.methodUsed === "missing") {
+    missingDataMessages.push("공시가격 데이터 부족 — 공동주택공시가격을 직접 입력하거나 관리처분 단계까지 대기 필요");
+  }
+  if (apiResolved._derivedSources.saleAreaSource === "missing") {
+    missingDataMessages.push(
+      `분양면적 계산 불가 — 누락 항목: ${apiResolved._derivedSources.missingSaleAreaFields.join(", ")}`
+    );
+  }
+  if (missingDataMessages.length > 0) {
+    return { data: null, error: "필수 데이터 누락으로 계산 불가", debugMessages: missingDataMessages };
+  }
 
   // Step 6: 관리자 명시 입력값 최우선 적용 (API 값을 덮어씀)
   // 관리자가 직접 입력한 값은 어떤 자동화 값보다 우선
@@ -1293,6 +1297,11 @@ function computeScenario(
     totalConstructionCost * z.pf_loan_ratio * (z.annual_pf_rate / 12) * T;
   const totalCost = totalConstructionCost + baseBusinessExpense + financialCost;
 
+  // ── 종전자산 시나리오 계수 적용 ───────────────────────────────────────────
+  // 낙관: 감정가 10% 우상향, 중립: 기준, 비관: 10% 하향
+  const ASSET_COEFF = type === "optimistic" ? 1.1 : type === "pessimistic" ? 0.9 : 1.0;
+  const scenarioAppraisalValue = z.total_appraisal_value * ASSET_COEFF;
+
   // ── 조합원분양가 결정 방식 ────────────────────────────────────────────────
   // Option A (zone_designation / association_established): 시세 × 할인율 추정 (resolveZoneParams에서 이미 계산)
   // Option B (project_implementation, 추정값): 목표 비례율(100%) 역산
@@ -1304,11 +1313,11 @@ function computeScenario(
   if (z.member_sale_price_source !== "cost_estimated") {
     // 확정값 또는 수동 입력: 그대로 사용
     memberSalePriceMethod = z.member_sale_price_source as "announced" | "manual";
-  } else if (z.project_stage === "project_implementation" && memberSaleAreaPyung > 0 && z.total_appraisal_value > 0) {
+  } else if (z.project_stage === "project_implementation" && memberSaleAreaPyung > 0 && scenarioAppraisalValue > 0) {
     // Option B: 사업시행인가 단계 — 목표비례율(100%) 역산
     const targetPropRate = 1.0;
     memberSalePricePerPyung = Math.max(0,
-      (targetPropRate * z.total_appraisal_value - generalRevenue + totalCost) / memberSaleAreaPyung
+      (targetPropRate * scenarioAppraisalValue - generalRevenue + totalCost) / memberSaleAreaPyung
     );
     memberSalePriceMethod = "prop_rate_inverse";
   } else {
@@ -1319,9 +1328,11 @@ function computeScenario(
   const memberRevenue  = memberSalePricePerPyung * memberSaleAreaPyung;
   const totalRevenue   = generalRevenue + memberRevenue;
 
-  // 비례율: (총수입 - 총사업비) / 총종전평가액
+  // 비례율: (총수입 - 총사업비) / 총종전평가액 (시나리오 계수 적용)
   const proportionalRate =
-    ((totalRevenue - totalCost) / z.total_appraisal_value) * 100;
+    scenarioAppraisalValue > 0
+      ? ((totalRevenue - totalCost) / scenarioAppraisalValue) * 100
+      : 0;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Step 8~11: 개인 물건 분석
