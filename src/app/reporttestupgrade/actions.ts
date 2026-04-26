@@ -338,10 +338,16 @@ export async function fetchStep2Data(
     derivedSiteArea = step1.zoneSqm;
   }
 
+  const CONSTRUCTION_AREA_MULTIPLIER = 1.5; // 지하주차장+커뮤니티+기계실 포함
+
   const newFloorAreaSqm   = derivedSiteArea && farNewUsed && farNewUsed > 0
     ? Math.round(derivedSiteArea * (farNewUsed / 100))
     : null;
   const newFloorAreaPyung = newFloorAreaSqm ? Math.round(newFloorAreaSqm / 3.3058 * 10) / 10 : null;
+
+  // 공사연면적 = 분양연면적 × 1.5 (지하층+커뮤니티 포함)
+  const constructionFloorAreaSqm   = newFloorAreaSqm   ? Math.round(newFloorAreaSqm   * CONSTRUCTION_AREA_MULTIPLIER) : null;
+  const constructionFloorAreaPyung = newFloorAreaPyung ? Math.round(constructionFloorAreaSqm! / 3.3058 * 10) / 10    : null;
 
   // ── 분양면적 (세대수 비율 안분법) ─────────────────────────────────────────
   // 신축 총 분양면적 = Σ new_lotout × supply
@@ -407,7 +413,7 @@ export async function fetchStep2Data(
   const pfAnnualRate = 0.065;
   const projectMonths = 60;
 
-  const pureCost     = C0 && newFloorAreaPyung ? Math.round(C0 * newFloorAreaPyung) : null;
+  const pureCost     = C0 && constructionFloorAreaPyung ? Math.round(C0 * constructionFloorAreaPyung) : null;
   const otherCost    = pureCost ? Math.round(pureCost * otherCostRate) : null;
   const financialCost = pureCost
     ? Math.round(pureCost * pfLoanRatio * (pfAnnualRate / 12) * projectMonths)
@@ -449,6 +455,9 @@ export async function fetchStep2Data(
     farNewUsed,
     newFloorAreaSqm,
     newFloorAreaPyung,
+    constructionFloorAreaSqm,
+    constructionFloorAreaPyung,
+    constructionAreaMultiplier: CONSTRUCTION_AREA_MULTIPLIER,
     generalSaleAreaSqm,
     generalSaleAreaPyung,
     memberSaleAreaSqm,

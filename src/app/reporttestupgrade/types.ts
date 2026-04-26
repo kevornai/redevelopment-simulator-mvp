@@ -121,8 +121,11 @@ export interface Step2Data {
   platAreaUsed:          number | null; // platArea (있으면 우선)
   derivedSiteArea:       number | null; // 역산 대지면적
   farNewUsed:            number | null; // 신축용적률
-  newFloorAreaSqm:       number | null; // 신축 총연면적 (㎡)
-  newFloorAreaPyung:     number | null; // 신축 총연면적 (평)
+  newFloorAreaSqm:          number | null; // 신축 분양연면적 (㎡, 용적률 기준 지상)
+  newFloorAreaPyung:        number | null; // 신축 분양연면적 (평)
+  constructionFloorAreaSqm:   number | null; // 공사연면적 (㎡, 지하주차장+커뮤니티 포함)
+  constructionFloorAreaPyung: number | null; // 공사연면적 (평)
+  constructionAreaMultiplier: number;        // 지상→공사 배율 (기본 1.5)
 
   // 분양면적
   generalSaleAreaSqm:   number | null;

@@ -293,10 +293,22 @@ function Step2Section({
           )}
         </div>
         <Step2Row
-          label="신축 총연면적"
+          label="분양연면적 (지상, 용적률 기준)"
           value={step2.newFloorAreaPyung}
           onChange={(v) => setS2("newFloorAreaPyung", v)}
           suffix="평"
+          note="수익 계산 기준"
+        />
+        <Step2Row
+          label={`공사연면적 (×${step2.constructionAreaMultiplier}, 지하+커뮤니티 포함)`}
+          value={step2.constructionFloorAreaPyung}
+          onChange={(v) => setS2("constructionFloorAreaPyung", v)}
+          suffix="평"
+          note={
+            step2.newFloorAreaPyung
+              ? `계산: 분양연면적 ${step2.newFloorAreaPyung.toFixed(1)}평 × ${step2.constructionAreaMultiplier} = ${step2.constructionFloorAreaPyung?.toFixed(1)}평`
+              : "공사비 계산 기준"
+          }
         />
         <Step2Row
           label="평당 공사비 (C₀)"
@@ -311,8 +323,8 @@ function Step2Section({
           onChange={(v) => setS2("pureCost", v)}
           suffix="원"
           note={
-            step2.constructionCostPerPyung && step2.newFloorAreaPyung
-              ? `계산: ${fmt만(step2.constructionCostPerPyung)}/평 × ${step2.newFloorAreaPyung.toFixed(1)}평 = ${fmt억(step2.pureCost)}`
+            step2.constructionCostPerPyung && step2.constructionFloorAreaPyung
+              ? `계산: ${fmt만(step2.constructionCostPerPyung)}/평 × ${step2.constructionFloorAreaPyung.toFixed(1)}평(공사연면적) = ${fmt억(step2.pureCost)}`
               : ""
           }
         />
