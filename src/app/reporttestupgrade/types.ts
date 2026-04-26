@@ -103,6 +103,64 @@ export interface Step1Data {
   kosisIndex:               number | null;
 }
 
+// ─── 2단계: 사업성 분석 (중립 시나리오) ──────────────────────────────────────
+
+export interface Step2Data {
+  // ① 종전자산평가액
+  appraisalUnits:       number;        // 기존 세대수
+  appraisalOfficialPrice: number;      // 공시가 (step1에서)
+  totalAppraisalValue:  number | null; // = appraisalUnits × officialPrice × 1.4
+
+  // ② 일반분양가 p_base (MOLIT API)
+  pBase:         number | null;
+  pBaseApiError: string | null;
+
+  // 신축연면적 계산 과정
+  buildingFloorAreaUsed: number | null; // 기존연면적 (건축물대장)
+  farExistingUsed:       number | null; // 기존용적률
+  platAreaUsed:          number | null; // platArea (있으면 우선)
+  derivedSiteArea:       number | null; // 역산 대지면적
+  farNewUsed:            number | null; // 신축용적률
+  newFloorAreaSqm:       number | null; // 신축 총연면적 (㎡)
+  newFloorAreaPyung:     number | null; // 신축 총연면적 (평)
+
+  // 분양면적
+  generalSaleAreaSqm:   number | null;
+  generalSaleAreaPyung: number | null;
+  memberSaleAreaSqm:    number | null;
+  memberSaleAreaPyung:  number | null;
+
+  // ② 일반분양수익
+  generalRevenue: number | null;
+
+  // ③ 조합원분양수익
+  memberSalePricePerPyung: number | null; // 중립 할인율 적용 (또는 확정값)
+  memberSaleDiscountRate:  number | null; // 적용 할인율 (cost_estimated 시)
+  memberRevenue:           number | null;
+  totalRevenue:            number | null;
+
+  // ④ 총사업비
+  constructionCostPerPyung: number | null; // C0 (step1)
+  pureCost:      number | null;
+  otherCostRate: number;                   // 기본 0.30
+  otherCost:     number | null;
+  pfLoanRatio:   number;                   // 기본 0.50
+  pfAnnualRate:  number;                   // 기본 0.065
+  projectMonths: number;                   // 기본 60
+  financialCost: number | null;
+  totalCost:     number | null;
+
+  // ⑤ 비례율
+  proportionalRate: number | null; // %
+
+  // ⑥ 분담금 (중립, 개인)
+  desiredPyung:             number;
+  personalAppraisalValue:   number | null; // officialPrice × 1.4
+  rightsValue:              number | null; // personalAppraisalValue × proportionalRate/100
+  memberSaleTotalForUnit:   number | null; // memberSalePricePerPyung × desiredPyung
+  contribution:             number | null; // memberSaleTotal - rightsValue
+}
+
 export const DEFAULT_USER_INPUT: UserInput = {
   zoneId: "",
   projectType: "reconstruction",

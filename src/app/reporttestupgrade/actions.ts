@@ -3,7 +3,9 @@
 import { createClient } from "@supabase/supabase-js";
 import { fetchBuildingFloorArea } from "@/lib/market-data/building-registry";
 import { fetchPublicPriceByBjdCode, fetchPublicPriceByName } from "@/lib/market-data/nsdi";
-import type { Step1Data } from "./types";
+import { fetchLocalPrice } from "@/lib/market-data/molit";
+import { getMemberSaleDiscountRate } from "@/lib/derive-zone-params";
+import type { Step1Data, Step2Data } from "./types";
 
 // ─── 공사비 급지 추정 ─────────────────────────────────────────────────────────
 
@@ -264,6 +266,205 @@ export async function fetchStep1Data(
     constructionCostPerPyung: costPerPyung,
     constructionTier:         tier,
     kosisIndex,
+  };
+
+  return { data, error: null };
+}
+
+// ─── 2단계: 사업성 분석 (중립 시나리오) ──────────────────────────────────────
+
+const SUPPLY_SQM = { u40: 53, c40_60: 80, c60_85: 102.5, c85_135: 147.5, o135: 196 } as const;
+
+export async function fetchStep2Data(
+  zoneId: string,
+  step1: Step1Data,
+  desiredPyung: number,
+): Promise<{ data: Step2Data | null; error: string | null }> {
+  if (!zoneId) return { data: null, error: "구역 ID 없음" };
+
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  );
+
+  // ── 추가 DB 조회 (sigungu, 조합원분양가 확정 여부) ──────────────────────────
+  const { data: z } = await supabase
+    .from("gyeonggi_zones")
+    .select("sigun_nm, member_sale_price_source, member_sale_price_per_pyung")
+    .eq("zone_id", zoneId)
+    .single();
+
+  const sigungu              = (z as Record<string,unknown>)?.sigun_nm as string | null ?? null;
+  const memberSalePriceSource = (z as Record<string,unknown>)?.member_sale_price_source as string ?? "cost_estimated";
+  const memberSaleAnnounced  = Number((z as Record<string,unknown>)?.member_sale_price_per_pyung ?? 0);
+
+  // ── ① 종전자산평가액 ─────────────────────────────────────────────────────────
+  const eu = step1.existingUnits;
+  const appraisalUnits =
+    (eu.u40 ?? 0) + (eu.c40_60 ?? 0) + (eu.c60_85 ?? 0) + (eu.c85_135 ?? 0) + (eu.o135 ?? 0);
+  const appraisalOfficialPrice = step1.officialPrice ?? 0;
+  const totalAppraisalValue =
+    appraisalUnits > 0 && appraisalOfficialPrice > 0
+      ? Math.round(appraisalUnits * appraisalOfficialPrice * 1.4)
+      : null;
+
+  // ── ② p_base — MOLIT API ─────────────────────────────────────────────────────
+  const molitKey = process.env.MOLIT_API_KEY ?? "";
+  const lawdCd   = step1.lawdCd;
+  let pBase:         number | null = null;
+  let pBaseApiError: string | null = null;
+
+  if (molitKey && lawdCd) {
+    const r = await fetchLocalPrice(molitKey, lawdCd, desiredPyung, 24, undefined, true);
+    if (r.data) pBase = r.data.medianNewAptPricePerPyung;
+    else        pBaseApiError = r.error ?? "MOLIT 조회 실패";
+  } else {
+    pBaseApiError = molitKey ? "lawdCd 없음" : "MOLIT_API_KEY 없음";
+  }
+
+  // ── 신축연면적 계산 ──────────────────────────────────────────────────────────
+  // 역산 대지면적 우선순위: platArea > buildingFloorArea÷기존용적률 > zone_area_sqm
+  const farExistingUsed      = step1.farExisting;
+  const farNewUsed           = step1.farNew;
+  const buildingFloorAreaUsed = step1.buildingFloorArea;
+  const platAreaUsed         = step1.landSharePlatArea; // 건축물대장 platArea
+
+  let derivedSiteArea: number | null = null;
+  if (platAreaUsed && platAreaUsed > 0) {
+    derivedSiteArea = platAreaUsed;
+  } else if (buildingFloorAreaUsed && farExistingUsed && farExistingUsed > 0) {
+    derivedSiteArea = buildingFloorAreaUsed / (farExistingUsed / 100);
+  } else if (step1.zoneSqm && step1.zoneSqm > 0) {
+    derivedSiteArea = step1.zoneSqm;
+  }
+
+  const newFloorAreaSqm   = derivedSiteArea && farNewUsed && farNewUsed > 0
+    ? Math.round(derivedSiteArea * (farNewUsed / 100))
+    : null;
+  const newFloorAreaPyung = newFloorAreaSqm ? Math.round(newFloorAreaSqm / 3.3058 * 10) / 10 : null;
+
+  // ── 분양면적 (평형별 세대수 기반) ──────────────────────────────────────────
+  const nu = step1.newUnits;
+
+  const memberSaleAreaSqm =
+    (eu.u40 ?? 0)    * SUPPLY_SQM.u40    +
+    (eu.c40_60 ?? 0) * SUPPLY_SQM.c40_60 +
+    (eu.c60_85 ?? 0) * SUPPLY_SQM.c60_85 +
+    (eu.c85_135 ?? 0)* SUPPLY_SQM.c85_135 +
+    (eu.o135 ?? 0)   * SUPPLY_SQM.o135   || null;
+
+  const generalSaleAreaSqm = (
+    Math.max(0, (nu.u40 ?? 0)    - (eu.u40 ?? 0))    * SUPPLY_SQM.u40    +
+    Math.max(0, (nu.c40_60 ?? 0) - (eu.c40_60 ?? 0)) * SUPPLY_SQM.c40_60 +
+    Math.max(0, (nu.c60_85 ?? 0) - (eu.c60_85 ?? 0)) * SUPPLY_SQM.c60_85 +
+    Math.max(0, (nu.c85_135 ?? 0)- (eu.c85_135 ?? 0))* SUPPLY_SQM.c85_135+
+    Math.max(0, (nu.o135 ?? 0)   - (eu.o135 ?? 0))   * SUPPLY_SQM.o135
+  ) || null;
+
+  const memberSaleAreaPyung  = memberSaleAreaSqm  ? Math.round(memberSaleAreaSqm  / 3.3058 * 10) / 10 : null;
+  const generalSaleAreaPyung = generalSaleAreaSqm ? Math.round(generalSaleAreaSqm / 3.3058 * 10) / 10 : null;
+
+  // ── ③ 조합원분양가 (중립) ────────────────────────────────────────────────────
+  let memberSalePricePerPyung: number | null = null;
+  let memberSaleDiscountRate:  number | null = null;
+
+  if (memberSalePriceSource !== "cost_estimated" && memberSaleAnnounced > 0) {
+    memberSalePricePerPyung = memberSaleAnnounced;
+  } else if (step1.memberSalePricePerPyung && step1.memberSalePricePerPyung > 0) {
+    // 1단계에서 수동 입력한 값
+    memberSalePricePerPyung = step1.memberSalePricePerPyung;
+  } else if (pBase && pBase > 0) {
+    memberSaleDiscountRate  = getMemberSaleDiscountRate(sigungu, "neutral");
+    memberSalePricePerPyung = Math.round(pBase * memberSaleDiscountRate);
+  }
+
+  // ── ② 일반분양수익 ───────────────────────────────────────────────────────────
+  const generalRevenue = pBase && generalSaleAreaPyung
+    ? Math.round(pBase * generalSaleAreaPyung)
+    : null;
+
+  // ── ③ 조합원분양수익 ─────────────────────────────────────────────────────────
+  const memberRevenue = memberSalePricePerPyung && memberSaleAreaPyung
+    ? Math.round(memberSalePricePerPyung * memberSaleAreaPyung)
+    : null;
+
+  const totalRevenue = generalRevenue != null && memberRevenue != null
+    ? generalRevenue + memberRevenue
+    : null;
+
+  // ── ④ 총사업비 ──────────────────────────────────────────────────────────────
+  const C0           = step1.constructionCostPerPyung;
+  const otherCostRate = 0.30;
+  const pfLoanRatio  = 0.50;
+  const pfAnnualRate = 0.065;
+  const projectMonths = 60;
+
+  const pureCost     = C0 && newFloorAreaPyung ? Math.round(C0 * newFloorAreaPyung) : null;
+  const otherCost    = pureCost ? Math.round(pureCost * otherCostRate) : null;
+  const financialCost = pureCost
+    ? Math.round(pureCost * pfLoanRatio * (pfAnnualRate / 12) * projectMonths)
+    : null;
+  const totalCost    = pureCost != null && otherCost != null && financialCost != null
+    ? pureCost + otherCost + financialCost
+    : null;
+
+  // ── ⑤ 비례율 ────────────────────────────────────────────────────────────────
+  const proportionalRate =
+    totalRevenue != null && totalCost != null && totalAppraisalValue && totalAppraisalValue > 0
+      ? Math.round(((totalRevenue - totalCost) / totalAppraisalValue) * 10000) / 100
+      : null;
+
+  // ── ⑥ 분담금 ────────────────────────────────────────────────────────────────
+  const personalAppraisalValue = appraisalOfficialPrice > 0
+    ? Math.round(appraisalOfficialPrice * 1.4)
+    : null;
+  const rightsValue = personalAppraisalValue && proportionalRate != null
+    ? Math.round(personalAppraisalValue * (proportionalRate / 100))
+    : null;
+  const memberSaleTotalForUnit = memberSalePricePerPyung && desiredPyung > 0
+    ? Math.round(memberSalePricePerPyung * desiredPyung)
+    : null;
+  const contribution = memberSaleTotalForUnit != null && rightsValue != null
+    ? memberSaleTotalForUnit - rightsValue
+    : null;
+
+  const data: Step2Data = {
+    appraisalUnits,
+    appraisalOfficialPrice,
+    totalAppraisalValue,
+    pBase,
+    pBaseApiError,
+    buildingFloorAreaUsed,
+    farExistingUsed,
+    platAreaUsed,
+    derivedSiteArea,
+    farNewUsed,
+    newFloorAreaSqm,
+    newFloorAreaPyung,
+    generalSaleAreaSqm,
+    generalSaleAreaPyung,
+    memberSaleAreaSqm,
+    memberSaleAreaPyung,
+    generalRevenue,
+    memberSalePricePerPyung,
+    memberSaleDiscountRate,
+    memberRevenue,
+    totalRevenue,
+    constructionCostPerPyung: C0,
+    pureCost,
+    otherCostRate,
+    otherCost,
+    pfLoanRatio,
+    pfAnnualRate,
+    projectMonths,
+    financialCost,
+    totalCost,
+    proportionalRate,
+    desiredPyung,
+    personalAppraisalValue,
+    rightsValue,
+    memberSaleTotalForUnit,
+    contribution,
   };
 
   return { data, error: null };

@@ -3,10 +3,10 @@
 import React, { useState, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
 import {
-  UserInput, DEFAULT_USER_INPUT, Step1Data, UnitsByCategory,
+  UserInput, DEFAULT_USER_INPUT, Step1Data, Step2Data, UnitsByCategory,
   STAGE_DEFINITIONS, StageDateField,
 } from "./types";
-import { fetchStep1Data } from "./actions";
+import { fetchStep1Data, fetchStep2Data } from "./actions";
 
 const ZoneMap = dynamic(() => import("@/components/map/ZoneMap"), { ssr: false });
 
@@ -125,6 +125,285 @@ function elapsedFromDate(dateStr: string): number {
   return (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
 }
 
+// ─── 포맷 헬퍼 ───────────────────────────────────────────────────────────────
+function fmt억(v: number | null): string {
+  if (v == null) return "—";
+  return `${(v / 1e8).toFixed(1)}억`;
+}
+function fmt만(v: number | null): string {
+  if (v == null) return "—";
+  return `${(v / 1e4).toFixed(0)}만원`;
+}
+function fPct(v: number | null): string {
+  if (v == null) return "—";
+  return `${v.toFixed(1)}%`;
+}
+
+// ─── 2단계 섹션 ──────────────────────────────────────────────────────────────
+
+function Step2Row({
+  label, value, onChange, note, suffix, bold,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (v: number | null) => void;
+  note?: React.ReactNode;
+  suffix?: string;
+  bold?: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-2">
+        <label className={`text-sm ${bold ? "font-semibold text-zinc-800" : "font-medium text-zinc-700"} flex-1`}>{label}</label>
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+            className={`border rounded px-2 py-1 text-sm text-right w-40 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${bold ? "border-emerald-300 bg-emerald-50 font-semibold" : "border-zinc-300"}`}
+          />
+          {suffix && <span className="text-xs text-zinc-400 w-8">{suffix}</span>}
+        </div>
+      </div>
+      {note && <p className="text-xs text-zinc-400 pl-1 leading-relaxed">{note}</p>}
+    </div>
+  );
+}
+
+function Step2Section({
+  step2, setS2,
+}: {
+  step2: Step2Data;
+  setS2: <K extends keyof Step2Data>(key: K, value: Step2Data[K]) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-7">
+
+      {/* ① 종전자산평가액 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">① 종전자산평가액</h3>
+        <Step2Row
+          label="종전자산평가액"
+          value={step2.totalAppraisalValue}
+          onChange={(v) => setS2("totalAppraisalValue", v)}
+          bold
+          suffix="원"
+          note={
+            <>
+              {fmt억(step2.totalAppraisalValue)}
+              <br />
+              계산: {step2.appraisalUnits.toLocaleString()}세대 × {fmt만(step2.appraisalOfficialPrice)} × 1.4
+              {" = "}{fmt억(step2.totalAppraisalValue)}
+            </>
+          }
+        />
+      </section>
+
+      {/* ② 일반분양수익 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">② 일반분양수익</h3>
+        {step2.pBaseApiError && (
+          <p className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">⚠ MOLIT API: {step2.pBaseApiError}</p>
+        )}
+        <Step2Row
+          label="인근 신축 평당 분양가 (p_base)"
+          value={step2.pBase}
+          onChange={(v) => setS2("pBase", v)}
+          suffix="원/평"
+          note={`MOLIT 실거래가 기준 · 인근 신축(최근 24개월) 중앙값`}
+        />
+        <Step2Row
+          label="일반분양 면적"
+          value={step2.generalSaleAreaPyung}
+          onChange={(v) => setS2("generalSaleAreaPyung", v)}
+          suffix="평"
+          note={
+            step2.generalSaleAreaSqm != null
+              ? `계산: Σ max(0, 신축 - 기존) × 공급면적 = ${step2.generalSaleAreaSqm.toLocaleString()}㎡ = ${step2.generalSaleAreaPyung?.toFixed(1)}평`
+              : "신축/기존 세대수 데이터 필요"
+          }
+        />
+        <Step2Row
+          label="일반분양수익"
+          value={step2.generalRevenue}
+          onChange={(v) => setS2("generalRevenue", v)}
+          bold
+          suffix="원"
+          note={
+            step2.pBase && step2.generalSaleAreaPyung
+              ? `계산: ${fmt만(step2.pBase)}/평 × ${step2.generalSaleAreaPyung.toFixed(1)}평 = ${fmt억(step2.generalRevenue)}`
+              : "p_base 또는 일반분양면적 없음"
+          }
+        />
+      </section>
+
+      {/* ③ 조합원분양수익 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">③ 조합원분양수익</h3>
+        <Step2Row
+          label="평당 조합원 분양가"
+          value={step2.memberSalePricePerPyung}
+          onChange={(v) => setS2("memberSalePricePerPyung", v)}
+          suffix="원/평"
+          note={
+            step2.memberSaleDiscountRate != null && step2.pBase
+              ? `계산: p_base ${fmt만(step2.pBase)}/평 × ${(step2.memberSaleDiscountRate * 100).toFixed(0)}%(중립 지역할인율) = ${fmt만(step2.memberSalePricePerPyung)}/평`
+              : "확정값 또는 수동입력 적용"
+          }
+        />
+        <Step2Row
+          label="조합원분양 면적"
+          value={step2.memberSaleAreaPyung}
+          onChange={(v) => setS2("memberSaleAreaPyung", v)}
+          suffix="평"
+          note={
+            step2.memberSaleAreaSqm != null
+              ? `계산: Σ 기존세대 × 공급면적 = ${step2.memberSaleAreaSqm.toLocaleString()}㎡ = ${step2.memberSaleAreaPyung?.toFixed(1)}평`
+              : "기존 세대수 데이터 필요"
+          }
+        />
+        <Step2Row
+          label="조합원분양수익"
+          value={step2.memberRevenue}
+          onChange={(v) => setS2("memberRevenue", v)}
+          bold
+          suffix="원"
+          note={
+            step2.memberSalePricePerPyung && step2.memberSaleAreaPyung
+              ? `계산: ${fmt만(step2.memberSalePricePerPyung)}/평 × ${step2.memberSaleAreaPyung.toFixed(1)}평 = ${fmt억(step2.memberRevenue)}`
+              : ""
+          }
+        />
+      </section>
+
+      {/* ④ 총사업비 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">④ 총사업비</h3>
+        {/* 신축연면적 계산 과정 */}
+        <div className="bg-zinc-50 rounded-lg px-3 py-2 text-xs text-zinc-500 leading-relaxed">
+          <p className="font-medium text-zinc-700 mb-1">신축연면적 계산 과정</p>
+          {step2.platAreaUsed
+            ? <p>역산 대지면적 = platArea {step2.platAreaUsed.toLocaleString()}㎡ (건축물대장)</p>
+            : step2.buildingFloorAreaUsed && step2.farExistingUsed
+            ? <p>역산 대지면적 = 기존연면적 {step2.buildingFloorAreaUsed.toLocaleString()}㎡ ÷ (기존용적률 {step2.farExistingUsed}% / 100) = {step2.derivedSiteArea?.toLocaleString()}㎡</p>
+            : <p>역산 대지면적 = 구역면적 {step2.derivedSiteArea?.toLocaleString()}㎡</p>
+          }
+          {step2.farNewUsed && step2.derivedSiteArea && (
+            <p>신축연면적 = {step2.derivedSiteArea.toLocaleString()}㎡ × {step2.farNewUsed}% = {step2.newFloorAreaSqm?.toLocaleString()}㎡ = {step2.newFloorAreaPyung?.toFixed(1)}평</p>
+          )}
+        </div>
+        <Step2Row
+          label="신축 총연면적"
+          value={step2.newFloorAreaPyung}
+          onChange={(v) => setS2("newFloorAreaPyung", v)}
+          suffix="평"
+        />
+        <Step2Row
+          label="평당 공사비 (C₀)"
+          value={step2.constructionCostPerPyung}
+          onChange={(v) => setS2("constructionCostPerPyung", v)}
+          suffix="원/평"
+          note="1단계 KOSIS 보정값 (중립 시나리오 기준)"
+        />
+        <Step2Row
+          label="순수공사비"
+          value={step2.pureCost}
+          onChange={(v) => setS2("pureCost", v)}
+          suffix="원"
+          note={
+            step2.constructionCostPerPyung && step2.newFloorAreaPyung
+              ? `계산: ${fmt만(step2.constructionCostPerPyung)}/평 × ${step2.newFloorAreaPyung.toFixed(1)}평 = ${fmt억(step2.pureCost)}`
+              : ""
+          }
+        />
+        <Step2Row
+          label={`기타사업비 (${(step2.otherCostRate * 100).toFixed(0)}%)`}
+          value={step2.otherCost}
+          onChange={(v) => setS2("otherCost", v)}
+          suffix="원"
+          note={`계산: 순수공사비 × ${(step2.otherCostRate * 100).toFixed(0)}% = ${fmt억(step2.otherCost)}`}
+        />
+        <Step2Row
+          label="금융비용"
+          value={step2.financialCost}
+          onChange={(v) => setS2("financialCost", v)}
+          suffix="원"
+          note={`계산: 순수공사비 × PF${(step2.pfLoanRatio * 100).toFixed(0)}% × (${(step2.pfAnnualRate * 100).toFixed(1)}%/12) × ${step2.projectMonths}개월 = ${fmt억(step2.financialCost)}`}
+        />
+        <Step2Row
+          label="총사업비"
+          value={step2.totalCost}
+          onChange={(v) => setS2("totalCost", v)}
+          bold
+          suffix="원"
+          note={`순수공사비 ${fmt억(step2.pureCost)} + 기타 ${fmt억(step2.otherCost)} + 금융 ${fmt억(step2.financialCost)} = ${fmt억(step2.totalCost)}`}
+        />
+      </section>
+
+      {/* ⑤ 비례율 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑤ 비례율</h3>
+        <Step2Row
+          label="비례율"
+          value={step2.proportionalRate}
+          onChange={(v) => setS2("proportionalRate", v)}
+          bold
+          suffix="%"
+          note={
+            <>
+              계산: (총분양수익 - 총사업비) ÷ 종전자산평가액
+              <br />
+              = ({fmt억(step2.totalRevenue != null ? step2.totalRevenue : null)} - {fmt억(step2.totalCost)}) ÷ {fmt억(step2.totalAppraisalValue)} = {fPct(step2.proportionalRate)}
+            </>
+          }
+        />
+      </section>
+
+      {/* ⑥ 분담금 */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑥ 중립 분담금</h3>
+        <Step2Row
+          label="개인 감정평가액"
+          value={step2.personalAppraisalValue}
+          onChange={(v) => setS2("personalAppraisalValue", v)}
+          suffix="원"
+          note={`계산: 공시가 ${fmt만(step2.appraisalOfficialPrice)} × 1.4 = ${fmt억(step2.personalAppraisalValue)}`}
+        />
+        <Step2Row
+          label="권리가액"
+          value={step2.rightsValue}
+          onChange={(v) => setS2("rightsValue", v)}
+          suffix="원"
+          note={`계산: 감정평가액 ${fmt억(step2.personalAppraisalValue)} × 비례율 ${fPct(step2.proportionalRate)} = ${fmt억(step2.rightsValue)}`}
+        />
+        <Step2Row
+          label={`조합원 분양 총액 (${step2.desiredPyung}평)`}
+          value={step2.memberSaleTotalForUnit}
+          onChange={(v) => setS2("memberSaleTotalForUnit", v)}
+          suffix="원"
+          note={`계산: ${fmt만(step2.memberSalePricePerPyung)}/평 × ${step2.desiredPyung}평 = ${fmt억(step2.memberSaleTotalForUnit)}`}
+        />
+        <Step2Row
+          label="분담금"
+          value={step2.contribution}
+          onChange={(v) => setS2("contribution", v)}
+          bold
+          suffix="원"
+          note={
+            <>
+              계산: 조합원분양총액 - 권리가액
+              <br />
+              = {fmt억(step2.memberSaleTotalForUnit)} - {fmt억(step2.rightsValue)} = <span className={step2.contribution != null ? (step2.contribution >= 0 ? "text-red-600 font-semibold" : "text-blue-600 font-semibold") : ""}>{fmt억(step2.contribution)}</span>
+              {step2.contribution != null && (step2.contribution >= 0 ? " (추가 납부)" : " (환급)")}
+            </>
+          }
+        />
+      </section>
+
+    </div>
+  );
+}
+
 // ─── 정비 단계 타임라인 ───────────────────────────────────────────────────────
 
 function StageTimeline({
@@ -241,6 +520,10 @@ export default function ReportUpgradeClient() {
   const [step1Error, setStep1Error]     = useState<string | null>(null);
   const [step1, setStep1]               = useState<Step1Data | null>(null);
 
+  const [step2Loading, setStep2Loading] = useState(false);
+  const [step2Error, setStep2Error]     = useState<string | null>(null);
+  const [step2, setStep2]               = useState<Step2Data | null>(null);
+
   useEffect(() => {
     fetch("/api/admin/zones-list")
       .then((r) => r.json())
@@ -321,6 +604,23 @@ export default function ReportUpgradeClient() {
 
   function setNew(cat: keyof UnitsByCategory, v: number | null) {
     setStep1((prev) => prev ? { ...prev, newUnits: { ...prev.newUnits, [cat]: v } } : prev);
+  }
+
+  async function handleStep2() {
+    if (!input.zoneId || !step1) return;
+    setStep2Loading(true);
+    setStep2Error(null);
+    const { data, error } = await fetchStep2Data(input.zoneId, step1, input.desiredPyung);
+    if (error || !data) setStep2Error(error ?? "알 수 없는 오류");
+    else setStep2(data);
+    setStep2Loading(false);
+    setTimeout(() => {
+      document.getElementById("step2-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 100);
+  }
+
+  function setS2<K extends keyof Step2Data>(key: K, value: Step2Data[K]) {
+    setStep2((prev) => prev ? { ...prev, [key]: value } : prev);
   }
 
   const selectedZone = dbZones.find((z) => z.zone_id === input.zoneId);
@@ -765,6 +1065,35 @@ export default function ReportUpgradeClient() {
             </div>
           </section>
 
+          {/* 2단계 버튼 */}
+          <div className="pt-2 flex flex-col items-start gap-1">
+            <button
+              type="button"
+              onClick={handleStep2}
+              disabled={step2Loading || !step1.officialPrice || step1.officialPrice <= 0}
+              className="rounded-xl bg-emerald-600 text-white font-bold px-8 py-3.5 hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-base"
+            >
+              {step2Loading ? "계산 중..." : "2단계 실행 →"}
+            </button>
+            <p className="text-xs text-zinc-400">중립 시나리오{!step1.officialPrice || step1.officialPrice <= 0 ? " · 공시가격 입력 후 활성화" : ""}</p>
+            {step2Error && (
+              <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1 mt-1">오류: {step2Error}</p>
+            )}
+          </div>
+
+        </div>
+      )}
+
+      {/* ── 2단계 결과 ──────────────────────────────────────────────────────── */}
+      {step2 && (
+        <div id="step2-section" className="bg-white rounded-2xl border border-emerald-200 shadow-sm p-8 flex flex-col gap-8">
+          <div>
+            <span className="text-xs font-semibold text-emerald-600 uppercase tracking-widest">2단계 · 중립 시나리오</span>
+            <h2 className="font-bold text-zinc-900 mt-0.5">사업성 분석</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">자동 계산된 값입니다. 수정이 필요한 항목은 직접 편집하세요.</p>
+          </div>
+
+          <Step2Section step2={step2} setS2={setS2} />
         </div>
       )}
 
