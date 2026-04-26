@@ -219,7 +219,7 @@ function Step2Section({
           suffix="평"
           note={
             step2.generalSaleAreaSqm != null
-              ? `계산: Σ max(0, 신축 - 기존) × 공급면적 = ${step2.generalSaleAreaSqm.toLocaleString()}㎡ = ${step2.generalSaleAreaPyung?.toFixed(1)}평`
+              ? `계산: 신축총분양면적 × (일반분양세대 / 신축전체세대) = ${step2.generalSaleAreaSqm.toLocaleString()}㎡ = ${step2.generalSaleAreaPyung?.toFixed(1)}평`
               : "신축/기존 세대수 데이터 필요"
           }
         />
@@ -258,7 +258,7 @@ function Step2Section({
           suffix="평"
           note={
             step2.memberSaleAreaSqm != null
-              ? `계산: Σ 기존세대 × 공급면적 = ${step2.memberSaleAreaSqm.toLocaleString()}㎡ = ${step2.memberSaleAreaPyung?.toFixed(1)}평`
+              ? `계산: 신축총분양면적 × (조합원세대 / 신축전체세대) = ${step2.memberSaleAreaSqm.toLocaleString()}㎡ = ${step2.memberSaleAreaPyung?.toFixed(1)}평`
               : "기존 세대수 데이터 필요"
           }
         />
@@ -438,7 +438,6 @@ function StageTimeline({
         const date = step1[field];
         const isDone   = i <= lastDoneIdx;
         const isActive = i === activeIdx;
-        const isFuture = i > activeIdx;
 
         return (
           <div key={def.key} className={`flex items-start gap-3 py-2.5 border-b border-zinc-50 last:border-0 ${isActive ? "bg-blue-50/40 -mx-1 px-1 rounded-lg" : ""}`}>

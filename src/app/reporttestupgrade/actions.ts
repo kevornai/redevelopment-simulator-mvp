@@ -343,23 +343,31 @@ export async function fetchStep2Data(
     : null;
   const newFloorAreaPyung = newFloorAreaSqm ? Math.round(newFloorAreaSqm / 3.3058 * 10) / 10 : null;
 
-  // ── 분양면적 (평형별 세대수 기반) ──────────────────────────────────────────
+  // ── 분양면적 (세대수 비율 안분법) ─────────────────────────────────────────
+  // 신축 총 분양면적 = Σ new_lotout × supply
+  // 조합원 세대수 = 기존 세대수, 일반분양 = 신축 - 기존
+  // 조합원이 어떤 평형을 받는지 미확정이므로 세대수 비율로 면적 안분
   const nu = step1.newUnits;
 
-  const memberSaleAreaSqm =
-    (eu.u40 ?? 0)    * SUPPLY_SQM.u40    +
-    (eu.c40_60 ?? 0) * SUPPLY_SQM.c40_60 +
-    (eu.c60_85 ?? 0) * SUPPLY_SQM.c60_85 +
-    (eu.c85_135 ?? 0)* SUPPLY_SQM.c85_135 +
-    (eu.o135 ?? 0)   * SUPPLY_SQM.o135   || null;
+  const newTotalSaleAreaSqm =
+    (nu.u40 ?? 0)    * SUPPLY_SQM.u40    +
+    (nu.c40_60 ?? 0) * SUPPLY_SQM.c40_60 +
+    (nu.c60_85 ?? 0) * SUPPLY_SQM.c60_85 +
+    (nu.c85_135 ?? 0)* SUPPLY_SQM.c85_135 +
+    (nu.o135 ?? 0)   * SUPPLY_SQM.o135;
 
-  const generalSaleAreaSqm = (
-    Math.max(0, (nu.u40 ?? 0)    - (eu.u40 ?? 0))    * SUPPLY_SQM.u40    +
-    Math.max(0, (nu.c40_60 ?? 0) - (eu.c40_60 ?? 0)) * SUPPLY_SQM.c40_60 +
-    Math.max(0, (nu.c60_85 ?? 0) - (eu.c60_85 ?? 0)) * SUPPLY_SQM.c60_85 +
-    Math.max(0, (nu.c85_135 ?? 0)- (eu.c85_135 ?? 0))* SUPPLY_SQM.c85_135+
-    Math.max(0, (nu.o135 ?? 0)   - (eu.o135 ?? 0))   * SUPPLY_SQM.o135
-  ) || null;
+  const memberUnitsCount  = appraisalUnits; // 기존 세대수 = 조합원 세대수
+  const totalNewUnitsCount =
+    (nu.u40 ?? 0) + (nu.c40_60 ?? 0) + (nu.c60_85 ?? 0) +
+    (nu.c85_135 ?? 0) + (nu.o135 ?? 0);
+  const generalUnitsCount = Math.max(0, totalNewUnitsCount - memberUnitsCount);
+
+  const memberSaleAreaSqm = totalNewUnitsCount > 0 && newTotalSaleAreaSqm > 0
+    ? Math.round(newTotalSaleAreaSqm * (memberUnitsCount / totalNewUnitsCount))
+    : null;
+  const generalSaleAreaSqm = totalNewUnitsCount > 0 && newTotalSaleAreaSqm > 0
+    ? Math.round(newTotalSaleAreaSqm * (generalUnitsCount / totalNewUnitsCount))
+    : null;
 
   const memberSaleAreaPyung  = memberSaleAreaSqm  ? Math.round(memberSaleAreaSqm  / 3.3058 * 10) / 10 : null;
   const generalSaleAreaPyung = generalSaleAreaSqm ? Math.round(generalSaleAreaSqm / 3.3058 * 10) / 10 : null;
