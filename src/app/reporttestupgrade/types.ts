@@ -94,6 +94,9 @@ export interface Step1Data {
   landShareTotalUnits: number | null; // 계산에 사용된 세대수
   landShareUnitSqm:   number;         // 계산에 사용된 전용면적 (기본 59㎡)
 
+  // 예상 조합원 분양가 (수동 입력)
+  memberSalePricePerPyung: number | null;
+
   // 공사비
   constructionCostPerPyung: number | null;
   constructionTier:         string | null;

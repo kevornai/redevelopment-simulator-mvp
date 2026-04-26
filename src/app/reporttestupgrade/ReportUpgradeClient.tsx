@@ -747,6 +747,24 @@ export default function ReportUpgradeClient() {
             )}
           </section>
 
+          {/* ⑧ 예상 조합원 분양가 */}
+          <section className="flex flex-col gap-3">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑧ 예상 조합원 분양가</h3>
+            <div className="max-w-xs">
+              <NullableNumInput
+                label="평당 조합원 분양가 (원/평)"
+                value={step1.memberSalePricePerPyung}
+                onChange={(v) => setS1("memberSalePricePerPyung", v)}
+                suffix="원/평"
+              />
+              {step1.memberSalePricePerPyung != null && step1.memberSalePricePerPyung > 0 && (
+                <p className="text-xs font-semibold text-blue-600 mt-1">
+                  {(step1.memberSalePricePerPyung / 10_000).toFixed(0)}만원/평
+                </p>
+              )}
+            </div>
+          </section>
+
         </div>
       )}
 

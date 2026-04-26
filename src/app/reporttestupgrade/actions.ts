@@ -259,6 +259,8 @@ export async function fetchStep1Data(
     landShareTotalUnits: totalExistingUnits > 0 ? totalExistingUnits : null,
     landShareUnitSqm:    UNIT_SQM,
 
+    memberSalePricePerPyung: null,
+
     constructionCostPerPyung: costPerPyung,
     constructionTier:         tier,
     kosisIndex,
