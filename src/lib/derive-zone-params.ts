@@ -177,16 +177,27 @@ function classifyRegion(sigungu: string | null | undefined): RegionType {
   return 'local';
 }
 
-/** 지역 유형별 조합원 분양가 할인율 (일반분양가 대비) */
-const MEMBER_SALE_DISCOUNT_BY_REGION: Record<RegionType, { rate: number; label: string }> = {
-  gangnam:          { rate: 0.55, label: '서울 강남권 (일반분양 프리미엄 큰 구간)' },
-  seoul_other:      { rate: 0.65, label: '서울 기타' },
-  gyeonggi_incheon: { rate: 0.73, label: '경기/인천 수도권' },
-  local:            { rate: 0.82, label: '지방' },
+/** 지역 유형별 조합원 분양가 할인율 (p_base 대비, 시나리오별) */
+const MEMBER_SALE_DISCOUNT_BY_REGION: Record<
+  RegionType,
+  { optimistic: number; neutral: number; pessimistic: number; label: string }
+> = {
+  gangnam:          { optimistic: 0.70, neutral: 0.80, pessimistic: 1.0, label: '서울 강남권' },
+  seoul_other:      { optimistic: 0.55, neutral: 0.60, pessimistic: 1.0, label: '서울 기타' },
+  gyeonggi_incheon: { optimistic: 0.80, neutral: 0.86, pessimistic: 1.0, label: '경기/인천 수도권' },
+  local:            { optimistic: 0.60, neutral: 0.70, pessimistic: 1.0, label: '지방' },
 };
 
-/** @deprecated 하위호환 — sigungu 없을 때 fallback */
-const MEMBER_SALE_DISCOUNT_RATE = 0.78;
+/**
+ * 시나리오별 조합원 분양가 할인율 반환
+ */
+export function getMemberSaleDiscountRate(
+  sigungu: string | null | undefined,
+  scenario: "optimistic" | "neutral" | "pessimistic",
+): number {
+  const region = classifyRegion(sigungu);
+  return MEMBER_SALE_DISCOUNT_BY_REGION[region][scenario];
+}
 
 export type MemberSalePriceDerivation =
   | { value: number; source: "announced" }
@@ -213,9 +224,9 @@ export function deriveMemberSalePrice(
     return { value: storedValue, source };
   }
 
-  // 지역 유형별 할인율 적용
+  // 중립 시나리오 기준 할인율 적용 (초기값 세팅용)
   const regionType = classifyRegion(sigungu);
-  const { rate, label } = MEMBER_SALE_DISCOUNT_BY_REGION[regionType];
+  const { neutral: rate, label } = MEMBER_SALE_DISCOUNT_BY_REGION[regionType];
   const estimated = Math.round(pBase * rate);
   return {
     value: estimated,
@@ -224,8 +235,6 @@ export function deriveMemberSalePrice(
   };
 }
 
-// 하위호환 — MEMBER_SALE_DISCOUNT_RATE는 deprecated이지만 export 유지
-export { MEMBER_SALE_DISCOUNT_RATE };
 
 // ─────────────────────────────────────────────────────────────────────
 // 출처 라벨 (UI 표시용)

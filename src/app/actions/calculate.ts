@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchMarketData } from "@/lib/market-data";
 import type { MarketData } from "@/lib/market-data";
-import { deriveMonthsToConstruction, deriveMemberSalePrice, type StagePercentileData } from "@/lib/derive-zone-params";
+import { deriveMonthsToConstruction, deriveMemberSalePrice, getMemberSaleDiscountRate, type StagePercentileData } from "@/lib/derive-zone-params";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 타입 정의
@@ -144,7 +144,7 @@ export interface ScenarioResult {
     // 분양수익
     P: number;                        // 일반분양가 (원/평)
     memberSalePricePerPyung: number;  // 조합원분양가 (원/평)
-    memberSalePriceMethod: "announced" | "manual" | "discount_estimated" | "prop_rate_inverse"; // 결정 방식
+    memberSalePriceMethod: "announced" | "manual" | "discount_estimated"; // 결정 방식
     memberRevenue: number;            // 조합원분양수익 (원)
     generalRevenue: number;           // 일반분양수익 (원)
     totalRevenue: number;             // 총분양수익 (원)
@@ -1303,25 +1303,17 @@ function computeScenario(
   const scenarioAppraisalValue = z.total_appraisal_value * ASSET_COEFF;
 
   // ── 조합원분양가 결정 방식 ────────────────────────────────────────────────
-  // Option A (zone_designation / association_established): 시세 × 할인율 추정 (resolveZoneParams에서 이미 계산)
-  // Option B (project_implementation, 추정값): 목표 비례율(100%) 역산
-  //   조합원분양가 = (목표비례율 × 종전자산 - 일반분양수입 + 총사업비) / 조합원면적
+  // 우선순위 1: DB 확정값(announced) 또는 수동입력(manual) → 그대로 사용
+  // 우선순위 2: 지역 유형별 할인율 × p_base (시나리오별 다른 율 적용)
   const generalRevenue = P * generalSaleAreaPyung;
   let memberSalePricePerPyung = z.member_sale_price_per_pyung;
-  let memberSalePriceMethod: "announced" | "manual" | "discount_estimated" | "prop_rate_inverse" = "discount_estimated";
+  let memberSalePriceMethod: "announced" | "manual" | "discount_estimated" = "discount_estimated";
 
   if (z.member_sale_price_source !== "cost_estimated") {
-    // 확정값 또는 수동 입력: 그대로 사용
     memberSalePriceMethod = z.member_sale_price_source as "announced" | "manual";
-  } else if (z.project_stage === "project_implementation" && memberSaleAreaPyung > 0 && scenarioAppraisalValue > 0) {
-    // Option B: 사업시행인가 단계 — 목표비례율(100%) 역산
-    const targetPropRate = 1.0;
-    memberSalePricePerPyung = Math.max(0,
-      (targetPropRate * scenarioAppraisalValue - generalRevenue + totalCost) / memberSaleAreaPyung
-    );
-    memberSalePriceMethod = "prop_rate_inverse";
   } else {
-    // Option A: 구역지정 / 조합설립 단계 — 시세 × 할인율
+    const discountRate = getMemberSaleDiscountRate(z.sigungu, type);
+    memberSalePricePerPyung = Math.round(z.p_base * discountRate);
     memberSalePriceMethod = "discount_estimated";
   }
 
@@ -1598,9 +1590,9 @@ function computeScenario(
       memberSaleRatio: (memberSaleAreaPyung + generalSaleAreaPyung) > 0
         ? Math.round(memberSaleAreaPyung / (memberSaleAreaPyung + generalSaleAreaPyung) * 1000) / 1000
         : null,
-      memberSaleInverseGeneralRevenue: memberSalePriceMethod === "prop_rate_inverse" ? Math.round(generalRevenue) : null,
-      memberSaleInverseTotalCost: memberSalePriceMethod === "prop_rate_inverse" ? Math.round(totalCost) : null,
-      memberSaleInverseTotalAppraisal: memberSalePriceMethod === "prop_rate_inverse" ? Math.round(z.total_appraisal_value) : null,
+      memberSaleInverseGeneralRevenue: null,
+      memberSaleInverseTotalCost: null,
+      memberSaleInverseTotalAppraisal: null,
       appraisalMethodDetail:
         landShareSqm > 0 && z.land_official_price_per_sqm ? "대지지분+공시지가" :
         officialValuation > 0 ? "공시가×감평율" : "매수가÷1.3",

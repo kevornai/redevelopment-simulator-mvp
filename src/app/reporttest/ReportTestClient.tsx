@@ -522,6 +522,7 @@ export default function ReportTestClient() {
 
   const [result, setResult] = useState<CalculationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [debugMessages, setDebugMessages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [pyungUnit, setPyungUnit] = useState<"pyung" | "sqm">("pyung");
@@ -562,9 +563,9 @@ export default function ReportTestClient() {
     setLoading(true);
     setError(null);
     setResult(null);
-    const { data, error: calcError } = await calculateAnalysis(form);
-    if (calcError) setError(calcError);
-    else setResult(data);
+    const { data, error: calcError, debugMessages: msgs } = await calculateAnalysis(form);
+    if (calcError) { setError(calcError); setDebugMessages(msgs ?? []); }
+    else { setResult(data); setDebugMessages([]); }
     setLoading(false);
   }
 
@@ -911,6 +912,14 @@ export default function ReportTestClient() {
                         disabled={!atLeast("project_implementation")}
                       />
                       <AdminInput
+                        label="일반분양 세대수 (세대) ⭐"
+                        note="사업시행계획서 → 일반분양 세대수. 없으면 DB 자동 계산"
+                        placeholder="예: 57"
+                        value={form.admin?.generalUnitsInput}
+                        onChange={v => setAdmin("generalUnitsInput", v)}
+                        disabled={!atLeast("project_implementation")}
+                      />
+                      <AdminInput
                         label="예상 일반분양가 (원/평)"
                         note="HUG 분양가 상한제 또는 인근 분양 사례"
                         placeholder="예: 40000000 (4,000만)"
@@ -980,8 +989,13 @@ export default function ReportTestClient() {
 
       {/* 에러 */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
-          ⚠️ {error}
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 space-y-1">
+          <p className="font-semibold">⚠️ {error}</p>
+          {debugMessages.length > 0 && (
+            <ul className="mt-1 list-disc list-inside space-y-0.5 text-xs">
+              {debugMessages.map((m, i) => <li key={i}>{m}</li>)}
+            </ul>
+          )}
         </div>
       )}
 
@@ -1213,11 +1227,11 @@ export default function ReportTestClient() {
                           <span className="text-zinc-400 pl-2">P × 일반분양면적</span><span>{fmt만(b.P)} × {b.generalSaleAreaPyung.toLocaleString()}평 = {fmt억(b.generalRevenue)}</span>
                           {/* 조합원분양가 결정 */}
                           <span className="text-zinc-400 col-span-2 mt-1 text-zinc-300">▸ 조합원분양가 결정
-                            <span className="ml-1 text-xs px-1 rounded" style={{background: b.memberSalePriceMethod === 'prop_rate_inverse' ? '#dbeafe' : b.memberSalePriceMethod === 'announced' ? '#dcfce7' : '#fef9c3'}}>
-                              {b.memberSalePriceMethod === 'prop_rate_inverse' ? '비례율역산(100%)' : b.memberSalePriceMethod === 'announced' ? '확정값' : b.memberSalePriceMethod === 'manual' ? '수동입력' : '할인율추정'}
+                            <span className="ml-1 text-xs px-1 rounded" style={{background: (b.memberSalePriceMethod as string) === 'prop_rate_inverse' ? '#dbeafe' : b.memberSalePriceMethod === 'announced' ? '#dcfce7' : '#fef9c3'}}>
+                              {(b.memberSalePriceMethod as string) === 'prop_rate_inverse' ? '비례율역산(100%)' : b.memberSalePriceMethod === 'announced' ? '확정값' : b.memberSalePriceMethod === 'manual' ? '수동입력' : '할인율추정'}
                             </span>
                           </span>
-                          {b.memberSalePriceMethod === 'prop_rate_inverse' && b.memberSaleInverseTotalAppraisal != null && (
+                          {(b.memberSalePriceMethod as string) === 'prop_rate_inverse' && b.memberSaleInverseTotalAppraisal != null && (
                             <>
                               <span className="text-zinc-400 pl-2">공식</span><span className="text-blue-600">(종전자산 - 일반수입 + 사업비) ÷ 조합원면적</span>
                               <span className="text-zinc-400 pl-2">= ({fmt억(b.memberSaleInverseTotalAppraisal)} - {fmt억(b.memberSaleInverseGeneralRevenue!)} + {fmt억(b.memberSaleInverseTotalCost!)})</span>
@@ -1298,16 +1312,16 @@ export default function ReportTestClient() {
           {/* ── 조합원분양가 결정 카드 ── */}
           {(() => {
             const b = result.neutral.calcBreakdown;
-            const methodLabel = b.memberSalePriceMethod === 'prop_rate_inverse' ? '비례율 역산 (목표 100%)'
+            const methodLabel = (b.memberSalePriceMethod as string) === 'prop_rate_inverse' ? '비례율 역산 (목표 100%)'
               : b.memberSalePriceMethod === 'announced' ? '확정값 (관리처분계획서)'
               : b.memberSalePriceMethod === 'manual' ? '수동 입력'
               : '할인율 추정 (시세 기반)';
             const methodColor = b.memberSalePriceMethod === 'announced' ? 'border-green-300 bg-green-50'
-              : b.memberSalePriceMethod === 'prop_rate_inverse' ? 'border-blue-300 bg-blue-50'
+              : (b.memberSalePriceMethod as string) === 'prop_rate_inverse' ? 'border-blue-300 bg-blue-50'
               : b.memberSalePriceMethod === 'manual' ? 'border-violet-300 bg-violet-50'
               : 'border-amber-300 bg-amber-50';
             const textColor = b.memberSalePriceMethod === 'announced' ? 'text-green-800'
-              : b.memberSalePriceMethod === 'prop_rate_inverse' ? 'text-blue-800'
+              : (b.memberSalePriceMethod as string) === 'prop_rate_inverse' ? 'text-blue-800'
               : b.memberSalePriceMethod === 'manual' ? 'text-violet-800'
               : 'text-amber-800';
             return (
@@ -1322,7 +1336,7 @@ export default function ReportTestClient() {
                     <div className="text-xs text-zinc-500 mt-0.5">중립 기준 · 84평 기준 {((b.memberSalePricePerPyung * 84) / 1e8).toFixed(1)}억</div>
                   </div>
                 </div>
-                {b.memberSalePriceMethod === 'prop_rate_inverse' && b.memberSaleInverseTotalAppraisal != null && (
+                {(b.memberSalePriceMethod as string) === 'prop_rate_inverse' && b.memberSaleInverseTotalAppraisal != null && (
                   <div className="mt-2 text-xs text-blue-700 font-mono bg-blue-100 rounded px-2 py-1">
                     = (종전 {(b.memberSaleInverseTotalAppraisal/1e8).toFixed(0)}억 − 일반수입 {(b.memberSaleInverseGeneralRevenue!/1e8).toFixed(0)}억 + 사업비 {(b.memberSaleInverseTotalCost!/1e8).toFixed(0)}억) ÷ {b.memberSaleAreaPyung.toLocaleString()}평
                   </div>
