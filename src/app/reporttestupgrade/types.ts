@@ -35,10 +35,32 @@ export interface UnitsByCategory {
   o135:   number | null;
 }
 
+// 단계 목록 (순서 중요)
+export const STAGE_DEFINITIONS = [
+  { key: "zone_designation",       label: "정비구역 지정",    field: "dateZoneDesignation" },
+  { key: "promo_committee",        label: "추진위원회 승인",   field: "datePromoCommittee"  },
+  { key: "association_established",label: "조합설립 인가",    field: "dateAssociation"     },
+  { key: "project_implementation", label: "사업시행 인가",    field: "dateProjectImpl"     },
+  { key: "management_disposal",    label: "관리처분 인가",    field: "dateMgmtDisposal"    },
+  { key: "construction_start",     label: "착공",            field: "dateConstruction"    },
+  { key: "general_sale",           label: "일반분양",         field: "dateGeneralSale"     },
+  { key: "completion",             label: "준공",            field: "dateCompletion"      },
+] as const;
+
+export type StageDateField =
+  | "dateZoneDesignation"
+  | "datePromoCommittee"
+  | "dateAssociation"
+  | "dateProjectImpl"
+  | "dateMgmtDisposal"
+  | "dateConstruction"
+  | "dateGeneralSale"
+  | "dateCompletion";
+
 export interface Step1Data {
   // 코드
-  lawdCd:   string | null;   // 시군코드 5자리
-  bjdCode:  string | null;   // 법정동코드 10자리
+  lawdCd:   string | null;
+  bjdCode:  string | null;
 
   // 평형별 세대수
   existingUnits: UnitsByCategory;
@@ -49,13 +71,18 @@ export interface Step1Data {
   farNew:      number | null;
 
   // 면적
-  zoneSqm:           number | null;  // 구역면적 (DB)
-  buildingFloorArea: number | null;  // 건축물대장 연면적
+  zoneSqm:           number | null;
+  buildingFloorArea: number | null;
 
-  // 정비 단계
-  projectStage:        string;
-  stageStartDate:      string | null;  // YYYY-MM-DD
-  stageElapsedMonths:  number | null;
+  // 단계별 날짜 (모두 YYYY-MM-DD or null, 편집 가능)
+  dateZoneDesignation: string | null;
+  datePromoCommittee:  string | null;
+  dateAssociation:     string | null;
+  dateProjectImpl:     string | null;
+  dateMgmtDisposal:    string | null;
+  dateConstruction:    string | null;
+  dateGeneralSale:     string | null;
+  dateCompletion:      string | null;
 
   // 공사비
   constructionCostPerPyung: number | null;

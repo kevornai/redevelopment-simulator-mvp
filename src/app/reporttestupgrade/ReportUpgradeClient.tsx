@@ -2,7 +2,10 @@
 
 import React, { useState, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
-import { UserInput, DEFAULT_USER_INPUT, Step1Data, UnitsByCategory } from "./types";
+import {
+  UserInput, DEFAULT_USER_INPUT, Step1Data, UnitsByCategory,
+  STAGE_DEFINITIONS, StageDateField,
+} from "./types";
 import { fetchStep1Data } from "./actions";
 
 const ZoneMap = dynamic(() => import("@/components/map/ZoneMap"), { ssr: false });
@@ -107,20 +110,123 @@ function NullableNumInput({
   );
 }
 
-// ─── 정비 단계 한글 ───────────────────────────────────────────────────────────
-const STAGE_KO: Record<string, string> = {
-  zone_designation:       "구역지정",
-  basic_plan:             "기본계획",
-  association_established:"조합설립인가",
-  project_implementation: "사업시행인가",
-  management_disposal:    "관리처분인가",
-  relocation:             "이주·철거",
-  construction_start:     "착공",
-  completion:             "준공",
-};
+// ─── 경과 개월 포맷 ───────────────────────────────────────────────────────────
+function fElapsed(months: number): string {
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  if (y === 0) return `${m}개월째`;
+  if (m === 0) return `${y}년째`;
+  return `${y}년 ${m}개월째`;
+}
 
-// ─── 단계 편집 섹션 ───────────────────────────────────────────────────────────
-const STAGES = Object.entries(STAGE_KO);
+function elapsedFromDate(dateStr: string): number {
+  const start = new Date(dateStr);
+  const now = new Date();
+  return (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+}
+
+// ─── 정비 단계 타임라인 ───────────────────────────────────────────────────────
+
+function StageTimeline({
+  step1,
+  setStep1,
+}: {
+  step1: Step1Data;
+  setStep1: React.Dispatch<React.SetStateAction<Step1Data | null>>;
+}) {
+  // 마지막으로 날짜가 있는 단계 인덱스 = 완료된 마지막 단계
+  const lastDoneIdx = STAGE_DEFINITIONS.reduce((acc, def, i) => {
+    const val = step1[def.field as StageDateField];
+    return val ? i : acc;
+  }, -1);
+
+  // 현재 진행 중인 단계 = lastDoneIdx + 1
+  const activeIdx = lastDoneIdx + 1;
+
+  // 마지막 완료 날짜로부터 경과 개월
+  const lastDoneDef = lastDoneIdx >= 0 ? STAGE_DEFINITIONS[lastDoneIdx] : null;
+  const lastDoneDate = lastDoneDef ? step1[lastDoneDef.field as StageDateField] : null;
+  const elapsed = lastDoneDate ? elapsedFromDate(lastDoneDate) : null;
+
+  function setDate(field: StageDateField, v: string) {
+    setStep1((prev) => prev ? { ...prev, [field]: v || null } : prev);
+  }
+
+  return (
+    <div className="flex flex-col gap-0">
+      {STAGE_DEFINITIONS.map((def, i) => {
+        const field = def.field as StageDateField;
+        const date = step1[field];
+        const isDone   = i <= lastDoneIdx;
+        const isActive = i === activeIdx;
+        const isFuture = i > activeIdx;
+
+        return (
+          <div key={def.key} className={`flex items-start gap-3 py-2.5 border-b border-zinc-50 last:border-0 ${isActive ? "bg-blue-50/40 -mx-1 px-1 rounded-lg" : ""}`}>
+            {/* 아이콘 */}
+            <div className={`mt-0.5 flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+              isDone   ? "bg-emerald-500 text-white" :
+              isActive ? "bg-blue-500 text-white"    :
+                         "bg-zinc-200 text-zinc-400"
+            }`}>
+              {isDone ? "✓" : isActive ? "→" : ""}
+            </div>
+
+            {/* 단계명 */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`text-sm font-medium ${
+                  isDone ? "text-zinc-700" : isActive ? "text-blue-700" : "text-zinc-400"
+                }`}>
+                  {def.label}
+                </span>
+                {isActive && elapsed != null && (
+                  <span className="text-xs font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                    진행 중 · {fElapsed(elapsed)}
+                  </span>
+                )}
+                {isDone && (
+                  <span className="text-xs text-emerald-600">완료</span>
+                )}
+              </div>
+            </div>
+
+            {/* 날짜 입력 */}
+            <div className="flex-shrink-0">
+              <input
+                type="date"
+                value={date ?? ""}
+                onChange={(e) => setDate(field, e.target.value)}
+                className={`border rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  isDone   ? "border-emerald-200 bg-emerald-50 text-emerald-800" :
+                  isActive ? "border-blue-300 bg-white text-zinc-700"            :
+                             "border-zinc-200 bg-zinc-50 text-zinc-400"
+                }`}
+              />
+            </div>
+          </div>
+        );
+      })}
+
+      {/* 현재 상태 요약 */}
+      {lastDoneIdx >= 0 && (
+        <div className="mt-3 text-xs text-zinc-500 bg-zinc-50 rounded-lg px-3 py-2">
+          {activeIdx < STAGE_DEFINITIONS.length ? (
+            <>
+              <span className="font-semibold text-blue-700">{STAGE_DEFINITIONS[activeIdx].label}</span>
+              {" 단계 도전 중"}
+              {elapsed != null && (
+                <> · <span className="font-semibold">{fElapsed(elapsed)}</span> 진행 중 ({lastDoneDate?.replace(/-/g, ".")} 이후)</>
+              )}
+            </>
+          ) : (
+            <span className="font-semibold text-emerald-700">사업 완료</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
@@ -545,58 +651,10 @@ export default function ReportUpgradeClient() {
             )}
           </section>
 
-          {/* ⑤ 정비 단계 */}
+          {/* ⑤ 정비 단계 타임라인 */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑤ 정비 단계</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* 단계 선택 */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-zinc-700">정비 단계</label>
-                <select
-                  value={step1.projectStage}
-                  onChange={(e) => setS1("projectStage", e.target.value)}
-                  className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {STAGES.map(([key, label]) => (
-                    <option key={key} value={key}>{label}</option>
-                  ))}
-                </select>
-              </div>
-              {/* 단계 시작일 */}
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-zinc-700">단계 시작일</label>
-                <input
-                  type="date"
-                  value={step1.stageStartDate ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value || null;
-                    const elapsed = v ? (() => {
-                      const start = new Date(v);
-                      const now = new Date();
-                      return (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-                    })() : null;
-                    setStep1((prev) => prev ? { ...prev, stageStartDate: v, stageElapsedMonths: elapsed } : prev);
-                  }}
-                  className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              {/* 경과 개월 */}
-              <NullableNumInput
-                label="경과 개월"
-                value={step1.stageElapsedMonths}
-                onChange={(v) => setS1("stageElapsedMonths", v)}
-                suffix="개월"
-              />
-            </div>
-            {step1.stageElapsedMonths != null && (
-              <p className="text-xs text-zinc-400">
-                {STAGE_KO[step1.projectStage] ?? step1.projectStage} 진행 중 ·{" "}
-                {Math.floor(step1.stageElapsedMonths / 12) > 0
-                  ? `${Math.floor(step1.stageElapsedMonths / 12)}년 `
-                  : ""}
-                {step1.stageElapsedMonths % 12}개월 경과
-              </p>
-            )}
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑤ 정비 단계 타임라인</h3>
+            <StageTimeline step1={step1} setStep1={setStep1} />
           </section>
 
           {/* ⑥ 공사비 */}

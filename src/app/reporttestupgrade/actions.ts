@@ -91,17 +91,11 @@ async function reverseGeocode(
   }
 }
 
-// ─── 경과 개월 계산 ───────────────────────────────────────────────────────────
-
-function elapsedMonths(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  const start = new Date(dateStr);
-  if (isNaN(start.getTime())) return null;
-  const now = new Date();
-  return (
-    (now.getFullYear() - start.getFullYear()) * 12 +
-    (now.getMonth() - start.getMonth())
-  );
+// ─── 날짜 정규화 (YYYYMMDD → YYYY-MM-DD, 이미 포맷된 건 그대로) ──────────────
+function normalizeDate(v: string | null | undefined): string | null {
+  if (!v) return null;
+  if (/^\d{8}$/.test(v)) return `${v.slice(0, 4)}-${v.slice(4, 6)}-${v.slice(6, 8)}`;
+  return v;
 }
 
 // ─── 메인 서버 액션 ───────────────────────────────────────────────────────────
@@ -131,26 +125,15 @@ export async function fetchStep1Data(
     return isNaN(n) ? null : n;
   };
 
-  // ── 현재 단계 + 시작일 ────────────────────────────────────────────────────
-  let projectStage  = "zone_designation";
-  let stageStartDate: string | null = null;
-
-  if (z.strcontr_date) {
-    projectStage   = "construction_start";
-    stageStartDate = z.strcontr_date;
-  } else if (z.manage_disposit_confmtn_date) {
-    projectStage   = "management_disposal";
-    stageStartDate = z.manage_disposit_confmtn_date;
-  } else if (z.biz_implmtn_confmtn_date) {
-    projectStage   = "project_implementation";
-    stageStartDate = z.biz_implmtn_confmtn_date;
-  } else if (z.assoctn_found_confmtn_date) {
-    projectStage   = "association_established";
-    stageStartDate = z.assoctn_found_confmtn_date;
-  } else if (z.zone_appont_first_date) {
-    projectStage   = "zone_designation";
-    stageStartDate = z.zone_appont_first_date;
-  }
+  // ── 단계별 날짜 ───────────────────────────────────────────────────────────
+  const dateZoneDesignation = normalizeDate(z.zone_appont_first_date);
+  const datePromoCommittee  = normalizeDate(z.proplsn_commisn_aprv_date);
+  const dateAssociation     = normalizeDate(z.assoctn_found_confmtn_date);
+  const dateProjectImpl     = normalizeDate(z.biz_implmtn_confmtn_date);
+  const dateMgmtDisposal    = normalizeDate(z.manage_disposit_confmtn_date);
+  const dateConstruction    = normalizeDate(z.strcontr_date);
+  const dateGeneralSale     = normalizeDate(z.genrl_lotout_date);
+  const dateCompletion      = normalizeDate(z.compltn_date);
 
   // ── KOSIS 지수 (market_cache) ─────────────────────────────────────────────
   let kosisIndex: number = KOSIS_BASE_INDEX_2024;
@@ -216,9 +199,14 @@ export async function fetchStep1Data(
     zoneSqm:           parseNum(z.zone_ar),
     buildingFloorArea,
 
-    projectStage,
-    stageStartDate,
-    stageElapsedMonths: elapsedMonths(stageStartDate),
+    dateZoneDesignation,
+    datePromoCommittee,
+    dateAssociation,
+    dateProjectImpl,
+    dateMgmtDisposal,
+    dateConstruction,
+    dateGeneralSale,
+    dateCompletion,
 
     constructionCostPerPyung: costPerPyung,
     constructionTier:         tier,
