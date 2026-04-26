@@ -474,20 +474,6 @@ export default function ReportUpgradeClient() {
             )}
           </div>
 
-          <NumInput label="공동주택 공시가격 (원)" value={input.officialValuation} onChange={(v) => set("officialValuation", v)} placeholder="미입력 시 자동 조회" note="입력 시 우선 적용" showWon />
-
-          {input.projectType === "reconstruction" && (
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-zinc-700">
-                대지지분 (㎡)
-                <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">재건축 핵심 지표</span>
-              </label>
-              <input type="number" value={input.landShareSqm || ""} onChange={(e) => set("landShareSqm", parseFloat(e.target.value) || 0)}
-                placeholder="예: 16.5"
-                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <p className="text-xs text-zinc-400">등기부등본 → 표제부 → 「대지권의 표시」에서 확인</p>
-            </div>
-          )}
         </div>
 
         {/* 실투자금 미리보기 */}
@@ -532,9 +518,75 @@ export default function ReportUpgradeClient() {
             <p className="text-xs text-zinc-400 mt-0.5">DB·API에서 자동 조회한 값입니다. 수정이 필요한 항목은 직접 편집하세요.</p>
           </div>
 
-          {/* ① 코드 정보 */}
+          {/* ① 공시가격 + 대지지분 */}
+          <section className="flex flex-col gap-4">
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">① 공시가격 · 대지지분</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+              {/* 공동주택 공시가격 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">
+                  공동주택 공시가격 (원)
+                  <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">브이월드 자동 조회</span>
+                </label>
+                <input
+                  type="number"
+                  value={step1.officialPrice ?? ""}
+                  onChange={(e) => setS1("officialPrice", e.target.value === "" ? null : Number(e.target.value))}
+                  placeholder="자동 조회 실패 시 직접 입력"
+                  className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {step1.officialPrice != null && step1.officialPrice > 0 && (
+                  <p className="text-xs font-semibold text-blue-600">
+                    {(step1.officialPrice / 100_000_000).toFixed(2)}억원
+                  </p>
+                )}
+                {step1.officialPriceApiError && (
+                  <p className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">
+                    ⚠ API 조회 실패: {step1.officialPriceApiError}
+                  </p>
+                )}
+              </div>
+
+              {/* 대지지분 */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-zinc-700">
+                  대지지분 (㎡)
+                  <span className="ml-2 text-xs font-normal text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">건축물대장 자동 계산</span>
+                </label>
+                <input
+                  type="number"
+                  value={step1.landShareSqm ?? ""}
+                  onChange={(e) => setS1("landShareSqm", e.target.value === "" ? null : Number(e.target.value))}
+                  placeholder={step1.landSharePlatArea == null ? "건축물대장 미조회" : "—"}
+                  className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {step1.landShareSqm != null && (
+                  <p className="text-xs font-semibold text-blue-600">
+                    {step1.landShareSqm}㎡ ({(step1.landShareSqm / 3.3058).toFixed(2)}평)
+                  </p>
+                )}
+                {/* 계산 과정 */}
+                {step1.landSharePlatArea != null && step1.landShareTotalUnits != null && (
+                  <p className="text-xs text-zinc-400 leading-relaxed">
+                    계산: {step1.landSharePlatArea.toLocaleString()}㎡ ÷ {step1.landShareTotalUnits}세대
+                    = <span className="font-medium text-zinc-600">{step1.landShareSqm?.toFixed(2)}㎡</span>
+                    <br />
+                    (대지면적 ÷ 기존세대수, 전용 {step1.landShareUnitSqm}㎡ 균등 가정)
+                  </p>
+                )}
+                {step1.landSharePlatArea == null && (
+                  <p className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">
+                    ⚠ 건축물대장 미조회 — 좌표 또는 API 키 확인 필요
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ② 코드 정보 */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">① 코드 정보</h3>
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">② 코드 정보</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <TextInput
                 label="시군코드 (5자리)"
@@ -553,9 +605,9 @@ export default function ReportUpgradeClient() {
             </div>
           </section>
 
-          {/* ② 평형별 세대수 */}
+          {/* ③ 평형별 세대수 */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">② 평형별 세대수</h3>
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">③ 평형별 세대수</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
@@ -607,9 +659,9 @@ export default function ReportUpgradeClient() {
             </div>
           </section>
 
-          {/* ③ 용적률 */}
+          {/* ④ 용적률 */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">③ 용적률</h3>
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">④ 용적률</h3>
             <div className="grid grid-cols-2 gap-4">
               <NullableNumInput
                 label="기존 용적률 (%)"
@@ -628,9 +680,9 @@ export default function ReportUpgradeClient() {
             </div>
           </section>
 
-          {/* ④ 구역 크기 */}
+          {/* ⑤ 구역 크기 */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">④ 구역 크기</h3>
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑤ 구역 크기</h3>
             <div className="grid grid-cols-2 gap-4">
               <NullableNumInput
                 label="구역면적 (㎡, DB)"
@@ -651,15 +703,15 @@ export default function ReportUpgradeClient() {
             )}
           </section>
 
-          {/* ⑤ 정비 단계 타임라인 */}
+          {/* ⑥ 정비 단계 타임라인 */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑤ 정비 단계 타임라인</h3>
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑥ 정비 단계 타임라인</h3>
             <StageTimeline step1={step1} setStep1={setStep1} />
           </section>
 
-          {/* ⑥ 공사비 */}
+          {/* ⑦ 공사비 */}
           <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑥ 공사비</h3>
+            <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑦ 공사비</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <NullableNumInput
                 label="평당 공사비 (원/평)"

@@ -2,6 +2,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { fetchBuildingFloorArea } from "@/lib/market-data/building-registry";
+import { fetchPublicPriceByBjdCode, fetchPublicPriceByName } from "@/lib/market-data/nsdi";
 import type { Step1Data } from "./types";
 
 // ─── 공사비 급지 추정 ─────────────────────────────────────────────────────────
@@ -158,6 +159,7 @@ export async function fetchStep1Data(
   const molitKey  = process.env.MOLIT_API_KEY       ?? "";
 
   let buildingFloorArea: number | null = null;
+  let platArea:          number | null = null;
 
   if (kakaoKey && molitKey && lat && lng) {
     const geo = await reverseGeocode(lat, lng, kakaoKey);
@@ -169,8 +171,49 @@ export async function fetchStep1Data(
         geo.bun,
         geo.ji,
       );
-      if (bfResult.data) buildingFloorArea = bfResult.data.totalFloorArea;
+      if (bfResult.data) {
+        buildingFloorArea = bfResult.data.totalFloorArea;
+        platArea          = bfResult.data.platArea ?? null;
+      }
     }
+  }
+
+  // ── 대지지분 계산 ─────────────────────────────────────────────────────────
+  // 세대 대지지분 = platArea × (unitSqm / (totalUnits × unitSqm)) = platArea / totalUnits
+  const UNIT_SQM = 59; // 60~85㎡ 구간 대표 전용면적
+  const totalExistingUnits =
+    (z.existing_hshld_u40    ?? 0) +
+    (z.existing_hshld_40_60  ?? 0) +
+    (z.existing_hshld_60_85  ?? 0) +
+    (z.existing_hshld_85_135 ?? 0) +
+    (z.existing_hshld_o135   ?? 0) ||
+    (z.existing_hshld_cnt ?? 0);
+
+  let landShareSqm: number | null = null;
+  if (platArea && totalExistingUnits > 0) {
+    landShareSqm = Math.round((platArea / totalExistingUnits) * 100) / 100;
+  }
+
+  // ── 공시가격 조회 (브이월드 NSDI) ─────────────────────────────────────────
+  const nsdiKey   = process.env.NSDI_API_KEY ?? "";
+  const zoneName  = z.imprv_zone_nm ?? "";
+  let officialPrice:         number | null = null;
+  let officialPriceApiError: string | null = null;
+
+  if (nsdiKey) {
+    let priceResult = bjdCode
+      ? await fetchPublicPriceByBjdCode(nsdiKey, bjdCode, zoneName)
+      : { data: null, error: "bjd_code 없음" };
+    if (!priceResult.data) {
+      priceResult = await fetchPublicPriceByName(nsdiKey, zoneName);
+    }
+    if (priceResult.data) {
+      officialPrice = priceResult.data.officialPrice;
+    } else {
+      officialPriceApiError = priceResult.error ?? "조회 실패";
+    }
+  } else {
+    officialPriceApiError = "NSDI_API_KEY 없음";
   }
 
   // ── 결과 조립 ─────────────────────────────────────────────────────────────
@@ -207,6 +250,14 @@ export async function fetchStep1Data(
     dateConstruction,
     dateGeneralSale,
     dateCompletion,
+
+    officialPrice,
+    officialPriceApiError,
+
+    landShareSqm,
+    landSharePlatArea:   platArea,
+    landShareTotalUnits: totalExistingUnits > 0 ? totalExistingUnits : null,
+    landShareUnitSqm:    UNIT_SQM,
 
     constructionCostPerPyung: costPerPyung,
     constructionTier:         tier,

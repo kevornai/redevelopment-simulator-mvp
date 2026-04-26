@@ -84,6 +84,16 @@ export interface Step1Data {
   dateGeneralSale:     string | null;
   dateCompletion:      string | null;
 
+  // 공시가격 (브이월드 API 자동 조회)
+  officialPrice:         number | null;
+  officialPriceApiError: string | null;   // null이면 API 성공
+
+  // 대지지분 (건축물대장 platArea 기반 자동 계산)
+  landShareSqm:       number | null;
+  landSharePlatArea:  number | null;  // 계산에 사용된 platArea
+  landShareTotalUnits: number | null; // 계산에 사용된 세대수
+  landShareUnitSqm:   number;         // 계산에 사용된 전용면적 (기본 59㎡)
+
   // 공사비
   constructionCostPerPyung: number | null;
   constructionTier:         string | null;

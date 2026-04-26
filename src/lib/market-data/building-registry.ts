@@ -13,6 +13,7 @@ const BR_BASE = 'https://apis.data.go.kr/1613000/BldRgstHubService/getBrRecapTit
 export interface BuildingFloorData {
   totalFloorArea: number;  // 연면적 합계 (㎡)
   floorAreaRatio: number | null;  // 현재 용적률 (예: 2.5 = 250%)
+  platArea: number | null;        // 대지면적 (㎡) — 대지지분 계산용
   buildingCount: number;
   fromApi: true;
 }
@@ -87,6 +88,7 @@ export async function fetchBuildingFloorArea(
       data: {
         totalFloorArea,
         floorAreaRatio,
+        platArea: platArea > 0 ? platArea : null,
         buildingCount: 1,
         fromApi: true,
       },
