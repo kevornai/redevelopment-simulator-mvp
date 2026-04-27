@@ -533,6 +533,9 @@ export default function ReportUpgradeClient() {
   const [step1Error, setStep1Error]     = useState<string | null>(null);
   const [step1, setStep1]               = useState<Step1Data | null>(null);
 
+  const [showCostPredictor, setShowCostPredictor] = useState(false);
+  const [costPredictMonths, setCostPredictMonths] = useState(36);
+
   const [step2Loading, setStep2Loading] = useState(false);
   const [step2Error, setStep2Error]     = useState<string | null>(null);
   const [step2, setStep2]               = useState<Step2Data | null>(null);
@@ -1063,12 +1066,41 @@ export default function ReportUpgradeClient() {
           <section className="flex flex-col gap-3">
             <h3 className="text-sm font-semibold text-zinc-700 border-b border-zinc-100 pb-1">⑦ 공사비</h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <NullableNumInput
-                label="평당 공사비 (원/평)"
-                value={step1.constructionCostPerPyung}
-                onChange={(v) => setS1("constructionCostPerPyung", v)}
-                suffix="원/평"
-              />
+              {/* 평당 공사비 + 예측 버튼 */}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs text-zinc-500">평당 공사비 (원/평)</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // 착공까지 남은 개월 자동 계산
+                      if (!showCostPredictor && step1.dateConstruction == null) {
+                        const lastDate = step1.dateMgmtDisposal ?? step1.dateProjectImpl ?? step1.dateAssociation;
+                        if (lastDate) {
+                          const elapsed = Math.max(0,
+                            (new Date().getFullYear() - new Date(lastDate).getFullYear()) * 12 +
+                            (new Date().getMonth() - new Date(lastDate).getMonth())
+                          );
+                          setCostPredictMonths(Math.max(12, 36 - elapsed));
+                        }
+                      }
+                      setShowCostPredictor(v => !v);
+                    }}
+                    className="text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded whitespace-nowrap transition-colors"
+                  >
+                    {showCostPredictor ? "닫기" : "착공 시점 공사비 예측"}
+                  </button>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={step1.constructionCostPerPyung ?? ""}
+                    onChange={(e) => setS1("constructionCostPerPyung", e.target.value === "" ? null : Number(e.target.value))}
+                    className="border border-zinc-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-xs text-zinc-400 whitespace-nowrap">원/평</span>
+                </div>
+              </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-zinc-500">급지</label>
                 <input
@@ -1089,9 +1121,64 @@ export default function ReportUpgradeClient() {
                 <p className="text-xs text-zinc-400">기준: 2020=100</p>
               </div>
             </div>
-            {step1.constructionCostPerPyung != null && (
+
+            {/* 착공 시점 공사비 예측 */}
+            {showCostPredictor && step1.constructionCostPerPyung != null && (() => {
+              const C0 = step1.constructionCostPerPyung;
+              const T  = costPredictMonths;
+              const R_RECENT = 0.007;   // 월 0.7% — 최근 급등세
+              const R_LONG   = 0.002;   // 월 0.2% — 장기 평균
+              const DECAY    = 0.04;
+              const W    = Math.exp(-DECAY * T);
+              const rAdj = W * R_RECENT + (1 - W) * R_LONG;
+              const CT   = Math.round(C0 * Math.pow(1 + rAdj, T) / 10_000) * 10_000;
+              const rPct = (rAdj * 100).toFixed(3);
+              const increase = CT - C0;
+              const increasePct = ((increase / C0) * 100).toFixed(1);
+              return (
+                <div className="bg-blue-50 rounded-xl p-4 flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-blue-700">착공 시점 공사비 예측</span>
+                    <span className="text-xs text-zinc-400">(중립 시나리오)</span>
+                  </div>
+                  {/* 착공까지 개월 입력 */}
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-zinc-600 whitespace-nowrap">착공까지 남은 개월</label>
+                    <input
+                      type="number"
+                      value={costPredictMonths}
+                      onChange={(e) => setCostPredictMonths(Math.max(1, Number(e.target.value)))}
+                      className="border border-blue-200 rounded px-2 py-1 text-sm w-20 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <span className="text-xs text-zinc-400">개월</span>
+                  </div>
+                  {/* 예측 결과 */}
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-lg font-bold text-blue-800">{CT.toLocaleString()}원/평</span>
+                    <span className="text-xs text-blue-600">+{increasePct}% ({(increase / 10_000).toFixed(0)}만원↑)</span>
+                  </div>
+                  {/* 계산 과정 */}
+                  <div className="text-xs text-zinc-500 leading-relaxed space-y-0.5">
+                    <p>W = e<sup>-{DECAY}×{T}</sup> = {W.toFixed(4)}&nbsp;(감쇠가중치, T 클수록 장기 수렴)</p>
+                    <p>r_adj = {W.toFixed(4)} × {(R_RECENT*100).toFixed(1)}%/월 + (1-{W.toFixed(4)}) × {(R_LONG*100).toFixed(1)}%/월 = {rPct}%/월</p>
+                    <p>C_T = {(C0/10000).toFixed(0)}만 × (1 + {rPct}%)<sup>{T}</sup> = <span className="font-semibold text-zinc-700">{(CT/10000).toFixed(0)}만원/평</span></p>
+                    <p className="text-zinc-400 mt-1">기준: r_recent 0.7%/월(최근 급등), r_long 0.2%/월(장기 평균), λ={DECAY}</p>
+                  </div>
+                  {/* 이 값 적용 버튼 */}
+                  <button
+                    type="button"
+                    onClick={() => setS1("constructionCostPerPyung", CT)}
+                    className="self-start text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    이 값으로 평당 공사비 적용
+                  </button>
+                </div>
+              );
+            })()}
+
+            {step1.constructionCostPerPyung != null && !showCostPredictor && (
               <p className="text-xs text-zinc-400">
-                추정 평당 공사비: <span className="font-semibold text-zinc-700">{step1.constructionCostPerPyung.toLocaleString()}원</span>
+                현재 시점 추정 공사비: <span className="font-semibold text-zinc-700">{step1.constructionCostPerPyung.toLocaleString()}원</span>
                 {step1.kosisIndex != null && ` (KOSIS ${step1.kosisIndex} 지수 반영)`}
               </p>
             )}
