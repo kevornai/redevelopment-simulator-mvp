@@ -15,6 +15,9 @@ export interface UserInput {
   /** 현재 전/월세 보증금 (원) */
   currentDeposit: number;
 
+  /** 현재 보유 평형 (전용면적 기준) */
+  currentPyung: number;
+
   /** 희망 조합원 분양 평형 */
   desiredPyung: number;
 
@@ -171,6 +174,7 @@ export const DEFAULT_USER_INPUT: UserInput = {
   purchasePrice: 300_000_000,
   purchaseLoanAmount: 200_000_000,
   currentDeposit: 0,
+  currentPyung: 0,
   desiredPyung: 18,
   officialValuation: 0,
   landShareSqm: 0,

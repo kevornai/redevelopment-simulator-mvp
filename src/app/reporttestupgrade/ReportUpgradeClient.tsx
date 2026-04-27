@@ -523,6 +523,8 @@ function StageTimeline({
 export default function ReportUpgradeClient() {
   const [dbZones, setDbZones]     = useState<ZoneListItem[]>([]);
   const [input, setInput]         = useState<UserInput>(DEFAULT_USER_INPUT);
+  const [currentPyungUnit, setCurrentPyungUnit] = useState<"pyung" | "sqm">("pyung");
+  const [currentSqmRaw, setCurrentSqmRaw]       = useState("");
   const [pyungUnit, setPyungUnit] = useState<"pyung" | "sqm">("pyung");
   const [sqmRaw, setSqmRaw]       = useState("");
 
@@ -747,6 +749,43 @@ export default function ReportUpgradeClient() {
           <NumInput label="매수 희망가 (원)" value={input.purchasePrice} onChange={(v) => set("purchasePrice", v)} placeholder="예: 300000000" showWon />
           <NumInput label="매수 시 대출금 (원)" value={input.purchaseLoanAmount} onChange={(v) => set("purchaseLoanAmount", v)} placeholder="예: 200000000" note="보유기간 이자 계산에 사용" showWon />
           <NumInput label="현재 전/월세 보증금 (원)" value={input.currentDeposit} onChange={(v) => set("currentDeposit", v)} placeholder="예: 0" showWon />
+
+          {/* 현재 평형 */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-zinc-700">현재 보유 평형</label>
+              <div className="flex rounded-lg overflow-hidden border border-zinc-300 text-xs">
+                <button type="button" onClick={() => setCurrentPyungUnit("pyung")}
+                  className={`px-2.5 py-1 font-medium transition-colors ${currentPyungUnit === "pyung" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}>
+                  평형
+                </button>
+                <button type="button" onClick={() => setCurrentPyungUnit("sqm")}
+                  className={`px-2.5 py-1 font-medium transition-colors ${currentPyungUnit === "sqm" ? "bg-blue-600 text-white" : "bg-white text-zinc-500 hover:bg-zinc-50"}`}>
+                  ㎡
+                </button>
+              </div>
+            </div>
+            {currentPyungUnit === "pyung" ? (
+              <input type="number" value={input.currentPyung || ""} onChange={(e) => set("currentPyung", Number(e.target.value))}
+                placeholder="예: 18, 25"
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            ) : (
+              <input type="number" value={currentSqmRaw} onChange={(e) => {
+                setCurrentSqmRaw(e.target.value);
+                const sqm = parseFloat(e.target.value);
+                if (sqm > 0) set("currentPyung", Math.round((sqm / 3.3058) * 10) / 10);
+              }}
+                placeholder="예: 59.97"
+                className="border border-zinc-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            )}
+            {input.currentPyung > 0 && (
+              <p className="text-xs font-semibold text-blue-600">
+                {currentPyungUnit === "sqm"
+                  ? `≈ ${input.currentPyung}평 (${(input.currentPyung * 3.3058).toFixed(1)}㎡)`
+                  : `≈ ${(input.currentPyung * 3.3058).toFixed(1)}㎡`}
+              </p>
+            )}
+          </div>
 
           {/* 희망 평형 */}
           <div className="flex flex-col gap-1.5">
