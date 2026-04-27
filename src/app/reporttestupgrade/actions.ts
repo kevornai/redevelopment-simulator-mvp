@@ -435,8 +435,9 @@ export async function fetchStep2Data(
   const rightsValue = personalAppraisalValue && proportionalRate != null
     ? Math.round(personalAppraisalValue * (proportionalRate / 100))
     : null;
+  const SUPPLY_EXCLUSIVE_RATIO = 1.35; // 공급/전용 환산 (전용률 74% 기준)
   const memberSaleTotalForUnit = memberSalePricePerPyung && desiredPyung > 0
-    ? Math.round(memberSalePricePerPyung * desiredPyung)
+    ? Math.round(memberSalePricePerPyung * desiredPyung * SUPPLY_EXCLUSIVE_RATIO)
     : null;
   const contribution = memberSaleTotalForUnit != null && rightsValue != null
     ? memberSaleTotalForUnit - rightsValue

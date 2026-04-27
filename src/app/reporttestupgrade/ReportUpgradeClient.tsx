@@ -389,11 +389,11 @@ function Step2Section({
           note={`계산: 감정평가액 ${fmt억(step2.personalAppraisalValue)} × 비례율 ${fPct(step2.proportionalRate)} = ${fmt억(step2.rightsValue)}`}
         />
         <Step2Row
-          label={`조합원 분양 총액 (${step2.desiredPyung}평)`}
+          label={`조합원 분양 총액 (희망 ${step2.desiredPyung}평 전용)`}
           value={step2.memberSaleTotalForUnit}
           onChange={(v) => setS2("memberSaleTotalForUnit", v)}
           suffix="원"
-          note={`계산: ${fmt만(step2.memberSalePricePerPyung)}/평 × ${step2.desiredPyung}평 = ${fmt억(step2.memberSaleTotalForUnit)}`}
+          note={`계산: ${fmt만(step2.memberSalePricePerPyung)}/평 × ${step2.desiredPyung}평(전용) × 1.35(공급환산) = ${fmt억(step2.memberSaleTotalForUnit)}`}
         />
         <Step2Row
           label="분담금"
