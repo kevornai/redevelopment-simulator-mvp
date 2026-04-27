@@ -176,6 +176,17 @@ function Step2Section({
   step2: Step2Data;
   setS2: <K extends keyof Step2Data>(key: K, value: Step2Data[K]) => void;
 }) {
+  const [showProjPredictor, setShowProjPredictor] = React.useState(false);
+  const [projMonths, setProjMonths]               = React.useState(24);
+  const [projAnnualRate, setProjAnnualRate]        = React.useState(3.0);
+
+  const projPBase = step2.pBase && projMonths > 0
+    ? Math.round(step2.pBase * Math.pow(1 + projAnnualRate / 100 / 12, projMonths) / 10_000) * 10_000
+    : null;
+  const projMemberPrice = projPBase && step2.memberSaleDiscountRate
+    ? Math.round(projPBase * step2.memberSaleDiscountRate)
+    : null;
+
   return (
     <div className="flex flex-col gap-7">
 
@@ -205,13 +216,130 @@ function Step2Section({
         {step2.pBaseApiError && (
           <p className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1">⚠ MOLIT API: {step2.pBaseApiError}</p>
         )}
-        <Step2Row
-          label="인근 신축 평당 분양가 (p_base)"
-          value={step2.pBase}
-          onChange={(v) => setS2("pBase", v)}
-          suffix="원/평"
-          note={`MOLIT 실거래가 기준 · 인근 신축(최근 24개월) 중앙값`}
-        />
+
+        {/* p_base 행 + 예측 버튼 */}
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-zinc-700 flex-1">인근 신축 평당 분양가 (p_base, 현재)</label>
+            <button
+              type="button"
+              onClick={() => setShowProjPredictor(v => !v)}
+              className="text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded whitespace-nowrap transition-colors"
+            >
+              {showProjPredictor ? "닫기" : "분양 시점 분양가 투영"}
+            </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              value={step2.pBase ?? ""}
+              onChange={(e) => setS2("pBase", e.target.value === "" ? null : Number(e.target.value))}
+              className="border border-zinc-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="text-xs text-zinc-400 whitespace-nowrap w-8">원/평</span>
+          </div>
+          <p className="text-xs text-zinc-400">MOLIT 실거래가 기준 · 인근 신축(최근 24개월) 중앙값</p>
+        </div>
+
+        {/* 분양 시점 투영 */}
+        {showProjPredictor && step2.pBase != null && (
+          <div className="bg-blue-50 rounded-xl p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-blue-700">분양 시점 분양가 투영</span>
+              <span className="text-xs text-zinc-400">(중립, 복리 상승)</span>
+            </div>
+
+            {/* 파라미터 입력 */}
+            <div className="flex flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-600 whitespace-nowrap">분양까지 남은 개월</label>
+                <input
+                  type="number"
+                  value={projMonths}
+                  onChange={(e) => setProjMonths(Math.max(1, Number(e.target.value)))}
+                  className="border border-blue-200 rounded px-2 py-1 text-sm w-16 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <span className="text-xs text-zinc-400">개월</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-zinc-600 whitespace-nowrap">연 상승률</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={projAnnualRate}
+                  onChange={(e) => setProjAnnualRate(Number(e.target.value))}
+                  className="border border-blue-200 rounded px-2 py-1 text-sm w-16 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <span className="text-xs text-zinc-400">%/년</span>
+              </div>
+            </div>
+
+            {/* 일반분양가 투영 결과 */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-zinc-600">분양 시점 예상 평당 일반분양가</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={projPBase ?? ""}
+                  readOnly
+                  className="border border-blue-200 bg-white rounded px-2 py-1.5 text-sm font-semibold text-blue-800 w-44"
+                />
+                <span className="text-xs text-zinc-400">원/평</span>
+                {projPBase && step2.pBase && (
+                  <span className="text-xs text-blue-600">
+                    +{(((projPBase - step2.pBase) / step2.pBase) * 100).toFixed(1)}%
+                    ({fmt만(projPBase - step2.pBase)}↑)
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-zinc-500 leading-relaxed">
+                계산: {fmt만(step2.pBase)}/평 × (1 + {(projAnnualRate/12).toFixed(3)}%/월)
+                <sup>{projMonths}</sup> = <span className="font-semibold">{fmt만(projPBase)}/평</span>
+                <br />
+                <span className="text-zinc-400">월 상승률 = 연 {projAnnualRate}% ÷ 12 = {(projAnnualRate/12).toFixed(3)}%/월</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => setS2("pBase", projPBase)}
+                className="self-start text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                이 값으로 p_base 적용
+              </button>
+            </div>
+
+            {/* 조합원분양가 투영 결과 */}
+            {step2.memberSaleDiscountRate != null && projMemberPrice != null && (
+              <div className="flex flex-col gap-1.5 border-t border-blue-100 pt-3">
+                <label className="text-xs font-medium text-zinc-600">분양 시점 예상 평당 조합원 분양가</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={projMemberPrice}
+                    readOnly
+                    className="border border-blue-200 bg-white rounded px-2 py-1.5 text-sm font-semibold text-blue-800 w-44"
+                  />
+                  <span className="text-xs text-zinc-400">원/평</span>
+                  {step2.memberSalePricePerPyung && (
+                    <span className="text-xs text-blue-600">
+                      +{(((projMemberPrice - step2.memberSalePricePerPyung) / step2.memberSalePricePerPyung) * 100).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500">
+                  계산: {fmt만(projPBase)}/평 × {(step2.memberSaleDiscountRate * 100).toFixed(0)}%(지역 할인율)
+                  = <span className="font-semibold">{fmt만(projMemberPrice)}/평</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setS2("memberSalePricePerPyung", projMemberPrice)}
+                  className="self-start text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  이 값으로 조합원 분양가 적용
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <Step2Row
           label="일반분양 면적"
           value={step2.generalSaleAreaPyung}
