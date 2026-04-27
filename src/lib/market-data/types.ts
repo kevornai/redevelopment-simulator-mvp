@@ -55,6 +55,8 @@ export interface LocalPriceData {
   trendSlopePerMonth: number;
   /** 볼린저 밴드용 월별 중위가 표준편차 (원/평). 데이터 부족 시 0 */
   monthlyStdDev: number;
+  /** 중위값 계산에 사용된 신축 거래 목록 (옵션) */
+  usedTransactions?: ApartmentTransaction[];
 }
 
 export interface PublicPriceData {

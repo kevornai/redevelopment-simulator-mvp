@@ -117,6 +117,7 @@ export interface Step2Data {
   // ② 일반분양가 p_base (MOLIT API)
   pBase:         number | null;
   pBaseApiError: string | null;
+  pBaseTransactions: { aptName: string; dealDate: string; pricePerPyung: number; area: number; buildYear: number }[];
 
   // 신축연면적 계산 과정
   buildingFloorAreaUsed: number | null; // 기존연면적 (건축물대장)

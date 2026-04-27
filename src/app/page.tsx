@@ -33,7 +33,7 @@ function Hero({ count }: { count: number }) {
         <p className="text-zinc-600 text-lg leading-relaxed max-w-xl mx-auto mb-10">
           쉽게 수억 원을 걸지 마세요.
           <br />
-          알고리즘 기반 시뮬레이터로{' '}
+      
           <strong className="text-zinc-800">'공사비 인상'</strong>과{' '}
           <strong className="text-zinc-800">'금리 변동'</strong>을 반영한
           <br />

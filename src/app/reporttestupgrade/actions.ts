@@ -311,13 +311,24 @@ export async function fetchStep2Data(
   // ── ② p_base — MOLIT API ─────────────────────────────────────────────────────
   const molitKey = process.env.MOLIT_API_KEY ?? "";
   const lawdCd   = step1.lawdCd;
-  let pBase:         number | null = null;
-  let pBaseApiError: string | null = null;
+  let pBase:              number | null = null;
+  let pBaseApiError:      string | null = null;
+  let pBaseTransactions:  Step2Data["pBaseTransactions"] = [];
 
   if (molitKey && lawdCd) {
     const r = await fetchLocalPrice(molitKey, lawdCd, desiredPyung, 24, undefined, true);
-    if (r.data) pBase = r.data.medianNewAptPricePerPyung;
-    else        pBaseApiError = r.error ?? "MOLIT 조회 실패";
+    if (r.data) {
+      pBase = r.data.medianNewAptPricePerPyung;
+      pBaseTransactions = (r.data.usedTransactions ?? []).map(tx => ({
+        aptName: tx.aptName,
+        dealDate: tx.dealDate,
+        pricePerPyung: tx.pricePerPyung,
+        area: tx.area,
+        buildYear: tx.buildYear,
+      }));
+    } else {
+      pBaseApiError = r.error ?? "MOLIT 조회 실패";
+    }
   } else {
     pBaseApiError = molitKey ? "lawdCd 없음" : "MOLIT_API_KEY 없음";
   }
@@ -449,6 +460,7 @@ export async function fetchStep2Data(
     totalAppraisalValue,
     pBase,
     pBaseApiError,
+    pBaseTransactions,
     buildingFloorAreaUsed,
     farExistingUsed,
     platAreaUsed,

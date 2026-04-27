@@ -273,6 +273,46 @@ function Step2Section({
             <span className="text-xs text-zinc-400 whitespace-nowrap">원/평</span>
           </div>
           <p className="text-xs text-zinc-400">MOLIT 실거래가 기준 · 인근 신축(최근 24개월) 중앙값</p>
+
+          {/* 사용된 거래 목록 테이블 */}
+          {step2.pBaseTransactions.length > 0 && (
+            <div className="mt-1 overflow-x-auto">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-zinc-50 text-zinc-500">
+                    <th className="text-left px-2 py-1.5 font-medium">단지명</th>
+                    <th className="text-center px-2 py-1.5 font-medium">거래년월</th>
+                    <th className="text-center px-2 py-1.5 font-medium">전용(㎡)</th>
+                    <th className="text-center px-2 py-1.5 font-medium">준공</th>
+                    <th className="text-right px-2 py-1.5 font-medium">평당 가격</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {step2.pBaseTransactions
+                    .sort((a, b) => b.dealDate.localeCompare(a.dealDate))
+                    .slice(0, 20)
+                    .map((tx, i) => (
+                      <tr key={i} className="border-t border-zinc-100 hover:bg-zinc-50">
+                        <td className="px-2 py-1">{tx.aptName}</td>
+                        <td className="px-2 py-1 text-center text-zinc-500">
+                          {tx.dealDate.slice(0, 4)}.{tx.dealDate.slice(4, 6)}
+                        </td>
+                        <td className="px-2 py-1 text-center text-zinc-500">{tx.area.toFixed(1)}</td>
+                        <td className="px-2 py-1 text-center text-zinc-500">{tx.buildYear}</td>
+                        <td className="px-2 py-1 text-right font-medium text-zinc-800">
+                          {(tx.pricePerPyung / 10_000).toFixed(0)}만원
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+              {step2.pBaseTransactions.length > 20 && (
+                <p className="text-xs text-zinc-400 text-right mt-1">
+                  외 {step2.pBaseTransactions.length - 20}건 생략
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 분양 시점 투영 */}

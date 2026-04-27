@@ -228,13 +228,16 @@ export async function fetchLocalPrice(
 
     // 최근 12개월 신축 (건축년도 기준)
     const recent12Months = new Set(recentMonths(12));
-    const recentNewAptPrices = allTx
-      .filter(tx => tx.buildYear >= newAptCutoffYear && recent12Months.has(tx.dealDate))
-      .map(tx => tx.pricePerPyung);
+    const recentNewTx = allTx
+      .filter(tx => tx.buildYear >= newAptCutoffYear && recent12Months.has(tx.dealDate));
+    const recentNewAptPrices = recentNewTx.map(tx => tx.pricePerPyung);
 
     const medianNewAptPricePerPyung = recentNewAptPrices.length > 0
       ? median(recentNewAptPrices)
       : median(allTx.map(tx => tx.pricePerPyung)); // 신축 데이터 없으면 전체 중위값
+
+    // 중위값 계산에 실제 사용된 거래 목록 (신축 없으면 전체)
+    const usedTransactions = recentNewTx.length > 0 ? recentNewTx : allTx;
 
     const peakPricePerPyung = Math.max(...allTx.map(tx => tx.pricePerPyung));
     const mddRate = maxDrawdown(pricesByMonth);
@@ -273,6 +276,7 @@ export async function fetchLocalPrice(
         fromApi: true,
         trendSlopePerMonth,
         monthlyStdDev,
+        usedTransactions,
       },
       error: null,
     };
