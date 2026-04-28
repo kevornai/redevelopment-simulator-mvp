@@ -31,9 +31,8 @@ function Hero({ count }: { count: number }) {
         </h1>
 
         <p className="text-zinc-600 text-lg leading-relaxed max-w-xl mx-auto mb-10">
-          쉽게 수억 원을 걸지 마세요.
+          검증 없이 수억 원을 걸지 마세요.
           <br />
-      
           <strong className="text-zinc-800">'공사비 인상'</strong>과{' '}
           <strong className="text-zinc-800">'금리 변동'</strong>을 반영한
           <br />
@@ -42,17 +41,20 @@ function Hero({ count }: { count: number }) {
 
         <a
           href="#waitlist"
-          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-4 rounded-xl text-base transition-colors duration-150 shadow-sm"
+          className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold px-8 py-4 rounded-xl text-lg transition-colors duration-150 shadow-sm"
         >
           무료로 내 매물 진단해보기 →
         </a>
 
-        <p className="text-zinc-400 text-sm mt-5">
+        <p className="text-zinc-500 text-sm mt-5">
+          이메일만 남기면 <strong className="text-zinc-800">재건축 가이드북 즉시 발송</strong> · 스팸 없음
+        </p>
+        <p className="text-zinc-400 text-sm mt-2">
           현재{' '}
           <strong className="text-zinc-700 font-bold">
             {count.toLocaleString()}명
           </strong>
-          이 대기 중 · 1회 무료 · 15page 리포트
+          이 대기 중
         </p>
       </div>
     </section>
@@ -121,10 +123,10 @@ function ProblemSection() {
 function AgitationSection() {
   return (
     <section className="bg-zinc-900 py-20">
-      <div className="max-w-4xl mx-auto px-6">
+      <div className="max-w-5xl mx-auto px-6">
         <div className="text-center mb-12">
           <p className="text-red-400 font-semibold text-sm tracking-wide uppercase mb-4">
-            이것이 현실입니다
+            분담금은 입주일이 다가올수록 늘어납니다
           </p>
           <h2 className="text-white font-bold text-3xl sm:text-4xl leading-tight mb-6">
             지금 확인하지 않으면,
@@ -140,12 +142,56 @@ function AgitationSection() {
           </p>
         </div>
 
-        {/* 뉴스 기사 이미지 플레이스홀더 */}
-        <div className="rounded-2xl border-2 border-dashed border-zinc-600 bg-zinc-800 p-8 text-center">
-          <p className="text-zinc-500 text-sm mb-2">📰 뉴스 기사 이미지 영역</p>
-          <p className="text-zinc-600 text-xs">
-            둔촌주공 1.8억 추가 분담금 관련 실제 기사 헤드라인 캡처 이미지를 여기에 배치해 주세요.
-          </p>
+        {/* 뉴스 기사 카드 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-2xl bg-zinc-800 border border-zinc-700 p-6 text-left">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs font-semibold text-zinc-400 bg-zinc-700 px-2 py-1 rounded-md">
+                📰 이데일리
+              </span>
+              <span className="text-xs text-zinc-500">2023.02.28</span>
+            </div>
+            <p className="text-white font-bold text-base leading-snug mb-3">
+              "2억 더 내라니"…분담금 폭탄에 둔촌주공 패닉
+            </p>
+            <p className="text-zinc-400 text-sm leading-relaxed">
+              올림픽파크 포레온 조합원들이 받은 추가 분담금은 세대당 평균 1억 2천만 원.
+              일부 세대는 최대 2억 원을 고지받아 충격을 주고 있습니다.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-zinc-800 border border-zinc-700 p-6 text-left">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs font-semibold text-zinc-400 bg-zinc-700 px-2 py-1 rounded-md">
+                📰 땅집고
+              </span>
+              <span className="text-xs text-zinc-500">2025.10.31</span>
+            </div>
+            <p className="text-white font-bold text-base leading-snug mb-3">
+              '분담금 폭탄' 논란 은마아파트, 연초보다 10억 폭등
+            </p>
+            <p className="text-zinc-400 text-sm leading-relaxed">
+              동일 평형 이동 시 추가 분담금 약 2억 원, 일부 세대는 최대 97억 원.
+              그럼에도 시세는 연초 대비 8억~11억 원 상승.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-zinc-800 border border-zinc-700 p-6 text-left">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs font-semibold text-zinc-400 bg-zinc-700 px-2 py-1 rounded-md">
+                📰 직썰
+              </span>
+              <span className="text-xs text-zinc-500">2026.03.16</span>
+            </div>
+            <p className="text-white font-bold text-base leading-snug mb-3">
+              유가 변수까지 덮친 정비사업…1기 신도시 재건축 '비상'
+            </p>
+            <p className="text-zinc-400 text-sm leading-relaxed">
+              공사비 상승에 국제유가 변수까지 겹치며 분당·일산 등 대규모 정비사업이
+              위기에 처했습니다. 둔촌주공 같은 공사 중단 사태가 재현될 수 있다는
+              우려가 제기되고 있습니다.
+            </p>
+          </div>
         </div>
       </div>
     </section>
@@ -202,11 +248,10 @@ function SolutionSection() {
       <div className="max-w-5xl mx-auto px-6">
         <div className="text-center mb-12">
           <p className="text-blue-600 font-semibold text-sm tracking-wide uppercase mb-3">
-            3가지 시나리오 시각화
+            3가지 미래 시나리오
           </p>
           <h2 className="text-zinc-900 font-bold text-3xl sm:text-4xl leading-tight mb-4">
-            
-            한눈에 보는 내 매물의 미래
+            이 매물, 5년 뒤 얼마가 남을까?
           </h2>
           <p className="text-zinc-500 text-base max-w-xl mx-auto">
             낙관·중립·비관 3가지 시나리오로 최악의 경우까지 미리 확인하세요.
@@ -225,7 +270,7 @@ function SolutionSection() {
                 >
                   {s.label}
                 </span>
-                <p className="text-zinc-500 text-xs mb-4">{s.sublabel}</p>
+                <p className="text-zinc-500 text-sm mb-4">{s.sublabel}</p>
               </div>
 
               <div className="flex flex-col gap-3">
@@ -271,12 +316,12 @@ function AuthoritySection() {
       <div className="max-w-5xl mx-auto px-6">
         <div className="text-center mb-12">
           <p className="text-blue-600 font-semibold text-sm tracking-wide uppercase mb-3">
-            왜 Revo여야 하는가
+            중개소 브리핑과 무엇이 다른가
           </p>
           <h2 className="text-zinc-900 font-bold text-3xl sm:text-4xl leading-tight mb-4">
-            철저한 데이터 기반
+            중개소는 팔아야 하지만,
             <br />
-            매수 알고리즘으로 설계되었습니다
+            Revo는 팔 이유가 없습니다
           </h2>
           <p className="text-zinc-500 text-base max-w-xl mx-auto">
             거래 성사가 목적인 중개소 브리핑과 달리, Revo는 이해관계 없이
@@ -321,14 +366,14 @@ function AuthoritySection() {
         {/* Stats */}
         <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {[
-            { value: '2,400+', label: '누적 분석 건수' },
-            { value: '98%', label: '실제 분담금 오차 2% 이내' },
-            { value: '15년', label: '재개발·재건축 데이터 기반' },
+            { value: '38개', label: '서울·경기 분석 가능 구역' },
+            { value: '3개', label: '국토부·통계청·한은 데이터 연동' },
+            { value: '10년', label: '건설공사비 인상 데이터 기반' },
             { value: '무료', label: '사전 예약자 한정 혜택' },
           ].map((stat) => (
             <div key={stat.label} className="bg-blue-50 rounded-2xl p-5">
               <p className="text-blue-700 text-3xl font-bold mb-1">{stat.value}</p>
-              <p className="text-blue-500 text-xs">{stat.label}</p>
+              <p className="text-blue-500 text-sm">{stat.label}</p>
             </div>
           ))}
         </div>
@@ -344,7 +389,7 @@ function BottomCTA() {
     <section id="waitlist" className="bg-blue-600 py-20">
       <div className="max-w-xl mx-auto px-6 text-center">
         <p className="text-blue-200 font-semibold text-sm tracking-wide uppercase mb-4">
-          지금 바로 시작하세요
+          30초면 됩니다
         </p>
         <h2 className="text-white font-bold text-3xl sm:text-4xl leading-tight mb-4">
           지금 바로 당신의 매물을
@@ -352,15 +397,15 @@ function BottomCTA() {
           진단해 보세요.
         </h2>
         <p className="text-blue-100 text-base leading-relaxed mb-8">
-          이메일 하나로 사전 대기 등록 + 무료 재건축 전자책을 즉시 받아보세요.
+          이메일 하나로 사전 예약 완료 + 무료 재건축 가이드북을 즉시 받아보세요.
           <br />
           <span className="text-blue-200 text-sm">무료 · 30초 · 스팸 없음</span>
         </p>
 
         {/* 폼 배경 카드 */}
         <div className="bg-white rounded-2xl p-7 shadow-lg">
-          <p className="text-[13px] font-semibold text-blue-500 text-center mb-4">
-            🎁 [사전 예약 혜택] 이메일 남기면 무료 분석권 &amp; 가이드북 즉시 발송
+          <p className="text-sm font-semibold text-blue-500 text-center mb-4">
+            🎁 사전 예약 혜택 — 이메일 남기면 무료 분석권 &amp; 가이드북 즉시 발송
           </p>
           <WaitlistForm />
         </div>
