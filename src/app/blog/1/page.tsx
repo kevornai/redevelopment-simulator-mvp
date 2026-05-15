@@ -5,67 +5,80 @@ import AssetCalculator from '@/components/blog/AssetCalculator';
 import LocationChecklist from '@/components/blog/LocationChecklist';
 
 export const metadata: Metadata = {
-  title: '수억 원 매수 결정 전, 제가 유일하게 후회 안 한 이유 | Revo 블로그',
+  title: '5억짜리 아파트가 6개월 만에 1억 오른 이유 | Revo 블로그',
   description:
-    '최악의 상황을 가정한 가용 자산 산정법과 환금성 중심 입지 기준. 직접 써볼 수 있는 계산기 포함.',
+    '최악의 상황을 가정한 가용 자산 산정법과 3단계 입지 필터링. 직접 써볼 수 있는 계산기 포함.',
 };
 
 const WAITLIST_URL = '/#waitlist';
 
-function ExampleCalc() {
-  const rows = [
-    { label: '현금 + 예적금', value: '2억', red: false },
-    { label: '투자 자산 (주식, 펀드)', value: '5,000만', red: false },
-    { label: '현재 부채', value: '-3,000만', red: true },
-  ];
-  const buffers = [
-    { label: '금리 2% 상승 완충 — 담보대출 3억 기준, 24개월', value: '1,200만' },
-    { label: '소득 중단 완충 — 월 300만 × 6개월', value: '1,800만' },
-    { label: '예비비 (의료·교육·수리)', value: '500만' },
-  ];
+function Step({ n, title, sub }: { n: number; title: string; sub: string }) {
+  return (
+    <div className="flex items-center gap-2 pt-2 pb-1">
+      <span className="shrink-0 text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">
+        STEP {n}
+      </span>
+      <span className="text-sm font-semibold text-zinc-800">{title}</span>
+      <span className="text-xs text-zinc-400 hidden sm:inline">— {sub}</span>
+    </div>
+  );
+}
 
+function ExRow({ label, value, red = false, dim = false }: { label: string; value: string; red?: boolean; dim?: boolean }) {
+  return (
+    <div className="flex justify-between">
+      <span className={dim ? 'text-zinc-400 text-xs leading-snug' : 'text-zinc-500'}>{label}</span>
+      <span className={`shrink-0 ml-4 ${red ? 'text-red-400' : dim ? 'text-zinc-400 text-xs' : 'text-zinc-700'}`}>{value}</span>
+    </div>
+  );
+}
+
+function ExampleCalc() {
   return (
     <div className="rounded-2xl border border-zinc-100 overflow-hidden text-sm">
       <div className="bg-zinc-50 px-5 py-3 border-b border-zinc-100">
         <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">예시로 계산하면</p>
       </div>
       <div className="divide-y divide-zinc-50">
+
+        {/* 자산 */}
         <div className="px-5 py-4 space-y-2">
-          {rows.map(r => (
-            <div key={r.label} className="flex justify-between">
-              <span className="text-zinc-500">{r.label}</span>
-              <span className={r.red ? 'text-red-400' : 'text-zinc-700'}>{r.value}</span>
-            </div>
-          ))}
+          <ExRow label="현금 + 예적금" value="2억" />
+          <ExRow label="투자 자산 (주식, 펀드)" value="5,000만" />
+          <ExRow label="현재 부채" value="-3,000만" red />
           <div className="flex justify-between font-semibold text-zinc-800 border-t border-zinc-100 pt-2 mt-1">
-            <span>순자산 (A)</span>
-            <span>2억 2,000만</span>
+            <span>순자산 (A)</span><span>2억 2,000만</span>
           </div>
         </div>
 
+        {/* 완충액 + 부대비용 */}
         <div className="px-5 py-4 space-y-2">
-          {buffers.map(b => (
-            <div key={b.label} className="flex justify-between">
-              <span className="text-zinc-400 text-xs leading-snug max-w-[240px]">{b.label}</span>
-              <span className="text-zinc-500 shrink-0 ml-4">{b.value}</span>
-            </div>
-          ))}
+          <p className="text-xs font-medium text-zinc-400">완충액</p>
+          <ExRow label="금리 2% 상승 완충 — 담보대출 3억 기준, 24개월" value="1,200만" dim />
+          <ExRow label="소득 중단 완충 — 월 300만 × 6개월" value="1,800만" dim />
+          <ExRow label="예비비 (의료·교육·수리)" value="500만" dim />
+          <p className="text-xs font-medium text-zinc-400 pt-2">매수 부대비용</p>
+          <ExRow label="취득세 (5억 × 1%)" value="500만" dim />
+          <ExRow label="등기비용 (법무사 + 등록면허세)" value="150만" dim />
+          <ExRow label="중개수수료 (5억 × 0.5%)" value="250만" dim />
+          <ExRow label="인테리어" value="1,000만" dim />
           <div className="flex justify-between font-semibold text-zinc-800 border-t border-zinc-100 pt-2 mt-1">
-            <span>완충액 합계 (B)</span>
-            <span>3,500만</span>
+            <span>공제 합계 (B)</span><span>5,400만</span>
           </div>
         </div>
 
+        {/* 결과 */}
         <div className="px-5 py-4">
           <div className="flex justify-between items-center bg-blue-50 rounded-xl px-4 py-3">
             <span className="font-semibold text-zinc-800">실제 가용 자산 (A − B)</span>
-            <span className="font-bold text-blue-600 text-lg">1억 8,500만</span>
+            <span className="font-bold text-blue-600 text-lg">1억 6,600만</span>
           </div>
           <p className="text-xs text-zinc-400 mt-3 leading-relaxed">
-            처음엔 "2억 정도면 살 수 있겠다" 싶었는데, 계산해보면 1억 8,500만이 맞는 숫자예요.
+            처음엔 "2억 정도면 살 수 있겠다" 싶었는데, 부대비용까지 빼면 1억 6,600만이 맞는 숫자예요.
             이 안에서 봐야 최악이 와도 버틸 수 있거든요.
           </p>
         </div>
+
       </div>
     </div>
   );
@@ -88,56 +101,56 @@ export default function Post() {
         <article className="max-w-2xl mx-auto px-5 py-12 sm:py-16">
 
           {/* 메타 */}
-          <div className="flex items-center gap-2 text-xs text-zinc-400 mb-6">
+          <div className="flex items-center gap-2 text-xs text-zinc-400 mb-5">
             <a href="/blog" className="hover:text-zinc-600 transition-colors">블로그</a>
             <span>·</span>
-            <time dateTime="2026-04-29">2026년 4월 29일</time>
+            <time dateTime="2026-05-15">2026년 5월 15일</time>
           </div>
 
           {/* 제목 */}
-          <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900 leading-tight mb-4">
-            수억 원 매수 결정 전,<br />
-            제가 유일하게 후회 안 한 이유
+          <h1 className="text-2xl sm:text-3xl font-bold text-zinc-900 leading-tight mb-3">
+            5억짜리 아파트가<br />
+            6개월 만에 1억이 올랐습니다.
           </h1>
           <p className="text-zinc-500 text-base mb-10 leading-relaxed">
-            영상에서 말씀드린 그 2가지를 여기에 다 풀어놨습니다.<br />
-            직접 써볼 수 있는 계산기도 넣어뒀어요.
+            영상에서 말씀드린 2가지 기준을 정리해보았습니다.<br />
+            제 경험이 누군가에게 꼭 도움이 되었으면 좋겠습니다. 
           </p>
 
           <hr className="border-zinc-100 mb-10" />
 
           {/* 본문 */}
-          <section className="space-y-6 text-zinc-700 leading-[1.85] text-[15px]">
+          <section className="space-y-5 text-zinc-700 leading-[1.85] text-[15px]">
 
             <p>
-              수억 원 결정을 앞두고 계신다면, 이 두 가지만 먼저 확인해보세요.
+              아파트 매매를 고민하고 계신다면, 제가 말씀드릴 2가지를 한번 확인해보세요.
             </p>
 
             <p>
-              저는 부모님의 임장을 도와드리면서 딱 2가지 원칙을 세웠고, 그 결과
-              5억짜리 아파트가 6개월 만에 1억 올랐는데요. 화려한 공식은 아니에요.
-              오히려 아주 단순한 것들인데, 막상 지키는 사람이 별로 없더라고요.
+              저는 부모님의 임장을 도와드리면서 2가지 기준을 정하고 진행했고,
+              그 결과 5억짜리 아파트가 6개월 만에 1억이 올랐습니다.
+              굉장히 간단하니 놓치고 있는 점이 아닌지 한번 점검해보시길 바라겠습니다.
             </p>
 
-            <h2 className="text-xl font-bold text-zinc-900 pt-4">
-              첫 번째 — 최악을 먼저 가정합니다
+            <h2 className="text-xl font-bold text-zinc-900 pt-3">
+              첫 번째, 저는 최악을 먼저 가정했습니다
             </h2>
 
             <p>
-              처음엔 당연한 얘기처럼 들리실 수도 있는데요.
-              근데 막상 계산해보면 본인도 좀 놀라실 거예요.
+              당연한 얘기처럼 들리실 수도 있는데요.
+              근데 막상 계산해보면 주변 사람들이 아파트로 인해 "몇억을 벌었더라~"하는 포모가 몰려와서, 나도 모르게 욕심에 눈이 멀어 영끌로 매매하는 경우가 많더라고요.
             </p>
 
             <p>
-              저희 아버지는 대기업을 다니면서 "앞으로 10년은 더 다닐 수 있다"고 했는데요.
-              그건 진심이었어요. 근데 예상이 틀렸고, 대출 상환 압박과 겹치면서
-              팔고 싶지 않은 타이밍에 물건을 던질 수밖에 없었습니다.
+              이전 영상에서도 말씀드렸다시피 저희 아버지도 안정적으로 대기업을 다니면서 "당연히 앞으로 10년은 더 다닐 수 있다"고 생각하고 매매를 했는데요.
+              하지만 안타깝게도 최악의 상황은 생길 수 있더라고요. 그래서 당시 대출 상환 압박이 겹치면서 팔고 싶지 않은 타이밍에 물건을 던지니깐 원금 손실을 상당히 많이 보았습니다.
             </p>
 
             <p>
+              만약 그때 어느 정도의 버틸 수 있는 자금을 빼고 가용 자산을 잡았다면 더 좋은 선택을 할 수 있었을텐데 하는 후회가 컸어요.
               그래서 이번엔{' '}
               <strong className="text-zinc-900">"지금 살 수 있는 돈"이 아니라, "최악이 와도 버틸 수 있는 돈"</strong>
-              으로 매수 상한을 잡았어요. 차이가 생각보다 꽤 크더라고요.
+              으로 매수 상한을 잡았습니다.
             </p>
 
           </section>
@@ -147,7 +160,7 @@ export default function Post() {
             <ExampleCalc />
           </div>
 
-          <section className="space-y-6 text-zinc-700 leading-[1.85] text-[15px]">
+          <section className="space-y-5 text-zinc-700 leading-[1.85] text-[15px]">
 
             <p className="text-sm text-zinc-500 bg-zinc-50 rounded-xl px-4 py-3">
               위 숫자는 예시예요. 아래 계산기에 본인 숫자를 넣으시면 실시간으로 계산됩니다.
@@ -161,43 +174,79 @@ export default function Post() {
             <AssetCalculator />
           </div>
 
-          <section className="space-y-6 text-zinc-700 leading-[1.85] text-[15px]">
+          <section className="space-y-5 text-zinc-700 leading-[1.85] text-[15px]">
 
             <p>
-              이렇게 계산하면 처음 생각했던 예산보다 낮게 나와요. 저도 그랬는데요.
-              근데 그게 맞는 숫자더라고요. 낮게 나왔다고 실망하지 마세요.
-              이 숫자가{' '}
-              <strong className="text-zinc-900">원하는 타이밍에 팔 수 있는 여건</strong>
-              의 출발점이에요.
+              이렇게 계산하면 처음 생각했던 예산보다 훨씬 낮게 나올텐데요.
             </p>
 
-            <h2 className="text-xl font-bold text-zinc-900 pt-4">
-              두 번째 — 팔릴 때 팔 수 있는 물건을 삽니다
+            <p>
+              낮게 나왔다고 절대 실망하지 마시고,
+              이렇게 보수적으로 접근했을 때 금리가 오르든 소득이 흔들리든 정말 내가 원하는 타이밍에 매도할 수 있을 겁니다. 
+              결국 투자는 매도까지 해야 진짜 수익이니까요.
+            </p>
+
+            <h2 className="text-xl font-bold text-zinc-900 pt-3">
+              두 번째, 입지는 이렇게 골랐습니다
             </h2>
 
             <p>
-              저희가 예전에 샀던 2층짜리, 단지가 하나뿐인 아파트.
-              오를 때는 그냥 같이 올랐어요.
+              대출을 포함해 총 매수 예산을 저희는 '5억'으로 정해졌는데요.
+              이 안에서 가장 확실하게 오를 곳을 찾아야 했습니다.
+              감이나 부동산 사장님 말 대신, 철저하게 3단계로 압축했습니다.
+            </p>
+
+            <Step n={1} title="황금 노선을 0순위로" sub="거시적 접근" />
+
+            <p>
+              지하철이 뚫린다고 혹은 뚫려있다고 무조건 집값이 오르는 건 아니더라고요. 중요한 건 해당 노선이 '어디로 직결되는가'이고,
+              강남, 판교, 여의도 같은 핵심 일자리를 환승 없이 꽂아주는 노선이 그래서 황금노선이겠죠.
+              그중에서 눈에 들어온 건 당연히 "신분당선"이었어요.
+              핵심 역들인 판교, 강남, 신사, 심지어 용산까지 관통하는 제가 생각하는 0순위 노선이거든요.
             </p>
 
             <p>
-              근데 2008년 금융위기가 왔을 때 살 사람이 없었어요. 더 좋은 아파트로
-              갈아타고 싶어도 내 것부터 팔아야 하는데, 그게 안 됐습니다.
-              시장이 회복하는 4년 가까이를 그 집 안에서 구경만 했는데요.
+              하지만 문제가 있었는데, 이미 개통된 강남, 판교, 정자, 수지 등은
+              절대 5억으로는 쳐다볼 수도 없는 가격이 되어 있었습니다. 그래서 "아직 개통은 안 했지만, 확정되어 공사 중인 연장선"을 위주로 계속해서 부동산을 봤습니다.
             </p>
 
             <p>
-              거기서 몸으로 배웠는데요.{' '}
-              <strong className="text-zinc-900">수익이 나도 팔지 못하면 아무 의미가 없다는 걸.</strong>
+              근데 이미 개통에 대한 호재가 선반영된 가격일 수도 있지 않냐는 걱정이 되기도 했는데요. 그래서 과거 데이터들을 찾아보니깐 신분당선은 개통 전에도 오르고,
+              개통 후에도 동네 체급 자체가 달라지며 또 한 번 폭발적으로 상승하는 패턴이 있었습니다.
+              그래서 결론적으로 공사 중인 광교~호매실 연장선을 타겟으로 잡고,
+              월드컵경기장·화서·호매실·구운 역으로 압축했어요.
+            </p>
+
+            <Step n={2} title="실물 앵커가 있는 곳을 골라라" sub="미시적 접근" />
+
+            <p>
+              4개 역 모두 호재들이 있었지만, 저는 하락장이 와도 가격을 가장 방어를 해줄 지역은 어디일까 고민했고,그것은 결국 변하지 않을 바로 상권과 학군이었어요. 이 기준을 대입하니 저희는 너무 쉽게 '화서역'으로 좁혀졌습니다.
             </p>
 
             <p>
-              수원 화서를 선택할 때도 신분당선 호재만 본 게 아니었어요.
-              "지금 당장 내놔도 팔리는 물건인가"를 먼저 봤는데요.
+              화서역에는 '스타필드 수원'이 있고, 실제로 주말, 평일 상관없이 관광객까지 몰려들 정도였습니다.
+              대형 쇼핑몰이 들어선 동네는 아무래도 꾸준한 매수 대기 수요가 있고,
+              심지어 여기에는 정자동 학원가와도 맞닿아 있어 학부모 선호도도 탄탄했습니다. 구축임에도 불구하고 전세에 대한 수요가 지속적으로 있더라구요.
+            </p>
+
+            <Step n={3} title="임장은 다다익선" sub="실행 단계" />
+
+            <p>
+              타겟이 정해졌으니 이제 발품을 팔 차례였습니다.
+              화서역 인근 단지들을 거의 다 돌아다녔는데요.
+              부동산에서 깡패는 무조건 '역에서 얼마나 가까운가'입니다.
+              거리가 멀어질수록 가격이 싸지긴 하지만, 역시 시장이 안 좋아지면 먼 곳부터 가격이 떨어지고 수요도 많이 없으니까요.
+            </p>
+
+            <p>
+              하지만 우리에겐 가용 자산 기준이 있었기 때문에, 역 바로 앞 구축 대장 아파트들은 이미 예산을 한참 넘겨버린 상태였어요. 그래서 조금 연차가 있더라도 입지의 가치를 누릴 수 있으면서, 아직 폭발적인 상승은 시작하지 않은 단지 중 가성비가 좋은 아파트를 골랐습니다. 
+            </p>
+            <p>  
+              근데 여기서 중요한 게 하나 있는데요. 임장을 직접 가야 하는 이유가 있습니다. 당시 역에서 더 가까워서 호가가 높았던 단지가 있었는데, 직접 가보니 부동산 분위기와 주변 느낌이 마음에 걸렸어요. 결국 조금 더 먼 단지를 골랐는데, 지금은 호가가 완전히 뒤집어진 상태가 됐습니다. 숫자만 봐서는 알 수 없는 것들이 현장에 있어요.
             </p>
 
             <p className="text-sm text-zinc-500 bg-zinc-50 rounded-xl px-4 py-3">
-              아래 체크리스트에서 3개 이상 충족하는지 확인해보세요.
+              적어도 아래 체크리스트에서 3개 이상 충족하는지 확인해보세요.
             </p>
 
           </section>
@@ -207,40 +256,50 @@ export default function Post() {
             <LocationChecklist />
           </div>
 
-          <section className="space-y-6 text-zinc-700 leading-[1.85] text-[15px]">
+          <section className="space-y-5 text-zinc-700 leading-[1.85] text-[15px]">
 
-            <h2 className="text-xl font-bold text-zinc-900 pt-4">
-              이것만큼은 피하셨으면 해요
+            <h2 className="text-xl font-bold text-zinc-900 pt-3">
+              추가로 — 팔릴 때 팔 수 있는 물건을 삽니다
             </h2>
 
-            <ul className="space-y-4">
-              {[
-                [
-                  '소득이 계속된다고 가정하고 대출 최대로 당기기',
-                  '틀리는 순간, 파는 타이밍을 잃어요.',
-                ],
-                [
-                  '중개소 숫자 검증 없이 믿기',
-                  '중개소는 팔아야 하는 사람이에요.',
-                ],
-                [
-                  '환금성 없는 매물을 "오르겠지"로 사기',
-                  '수익이 나도 실현이 안 돼요.',
-                ],
-                [
-                  '"지금 살 수 있다"는 이유만으로 결정하기',
-                  '버티지 못하면 원하지 않는 타이밍에 던지게 돼요.',
-                ],
-              ].map(([mistake, reason]) => (
-                <li key={mistake} className="flex gap-3">
-                  <span className="text-red-400 shrink-0 mt-0.5">❌</span>
-                  <span>
-                    <strong className="text-zinc-800">{mistake}</strong>
-                    <span className="text-zinc-500"> — {reason}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <p>
+              저희가 예전에 샀던 2층짜리, 단지가 하나뿐인 아파트.
+              오를 때는 그냥 같이 올랐어요.
+            </p>
+
+            <p>
+              근데 이제는 갈아타기가 부동산 하락장에 해야한다는 걸 다 알고 있잖아요. 근데 하락장에 저층에 세대 수가 작은 아파트는 정말 관심 밖이에요. 더 좋은 아파트로
+              갈아타고 싶어도 내 것부터 팔아야 하는데, 그게 절대 안됩니다. 시장에서 철저히 을이 되는 거죠.
+              결국 시장이 회복할 때까지 기다리거나, 던져야하죠.
+            </p>
+
+            <p>
+              거기서 몸으로 배웠습니다.{' '}
+              <strong className="text-zinc-900">투자는 결국 수익이 나도 팔지 못하면 아무 의미가 없다는 걸.</strong>
+            </p>
+
+            <div className="border-t border-zinc-100 pt-6">
+              <h2 className="text-xl font-bold text-zinc-900 mb-5">
+                이것만큼은 피하셨으면 해요
+              </h2>
+
+              <ul className="space-y-4">
+                {[
+                  ['소득이 계속된다고 가정하고 대출 최대로 당기기', '틀리는 순간, 파는 타이밍을 잃어요.'],
+                  ['중개소 숫자 검증 없이 믿기', '중개소는 팔아야 하는 사람이에요.'],
+                  ['환금성 없는 매물을 "오르겠지"로 사기', '수익이 나도 실현이 안 돼요.'],
+                  ['"지금 살 수 있다"는 이유만으로 결정하기', '버티지 못하면 원하지 않는 타이밍에 던지게 돼요.'],
+                ].map(([mistake, reason]) => (
+                  <li key={mistake} className="flex gap-3">
+                    <span className="text-red-400 shrink-0 mt-0.5">❌</span>
+                    <span>
+                      <strong className="text-zinc-800">{mistake}</strong>
+                      <span className="text-zinc-500"> — {reason}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
           </section>
 
@@ -250,14 +309,14 @@ export default function Post() {
           <section className="space-y-4 text-[15px] leading-[1.85]">
             <p className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">여담</p>
 
-            <p className="text-zinc-700">
-              거의 4개월 만에 영상을 올리는 건데요.
-            </p>
+            <p className="text-zinc-700">거의 4개월 만에 영상을 올리는 건데요.</p>
+
             <p className="text-zinc-500">
               그 사이에 뭐 했냐고 하면, 사실 이걸 만들고 있었어요. 재개발·재건축 구역 매물을
               볼 때 분담금을 최악·보통·최상 시나리오로 미리 계산해주는 서비스예요.
               퇴근하고 매일 같이 작업했는데 어느새 몇 달이 됐네요. 이제 곧 런칭할 것 같습니다.
             </p>
+
             <p className="text-zinc-500">
               관심 있으신 분들은 사전예약 해두시면 출시할 때 가장 먼저 알려드릴게요.
             </p>
